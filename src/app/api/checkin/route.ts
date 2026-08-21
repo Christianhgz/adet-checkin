@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkInAttendee, getRoster } from "@/lib/sheets";
-import { EVENTS } from "@/lib/events";
+import { EVENTS, REQUIRED_EVENT_COUNT } from "@/lib/events";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -21,9 +21,9 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await checkInAttendee(row, events);
-  if (result.status === "insufficient_events") {
+  if (result.status === "invalid_event_count") {
     return NextResponse.json(
-      { error: "Select at least 3 of the 4 events before checking in" },
+      { error: `Select exactly ${REQUIRED_EVENT_COUNT} of the ${EVENTS.length} events before checking in` },
       { status: 400 },
     );
   }

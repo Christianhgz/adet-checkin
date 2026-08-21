@@ -1,5 +1,5 @@
 import { google, sheets_v4 } from "googleapis";
-import { EVENTS, MIN_EVENTS_REQUIRED } from "./events";
+import { EVENTS, REQUIRED_EVENT_COUNT } from "./events";
 
 const SHEET_NAME = "Sheet1";
 const DATA_RANGE = `${SHEET_NAME}!A2:J1000`;
@@ -90,7 +90,7 @@ export async function getRoster(): Promise<Attendee[]> {
 export type CheckInOutcome =
   | { status: "already"; checkedInAt: string; events: string[] }
   | { status: "checked_in"; checkedInAt: string; events: string[] }
-  | { status: "insufficient_events" };
+  | { status: "invalid_event_count" };
 
 export async function checkInAttendee(
   row: number,
@@ -111,8 +111,8 @@ export async function checkInAttendee(
     };
   }
 
-  if (selectedEvents.length < MIN_EVENTS_REQUIRED) {
-    return { status: "insufficient_events" };
+  if (selectedEvents.length !== REQUIRED_EVENT_COUNT) {
+    return { status: "invalid_event_count" };
   }
 
   const now = new Date().toISOString();
