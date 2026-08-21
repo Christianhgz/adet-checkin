@@ -23,6 +23,7 @@ type CheckInResult = {
 export default function CheckInPage() {
   const [query, setQuery] = useState("");
   const [roster, setRoster] = useState<Match[] | null>(null);
+  const [rosterError, setRosterError] = useState(false);
   const [selected, setSelected] = useState<Match | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [result, setResult] = useState<CheckInResult | null>(null);
@@ -30,10 +31,17 @@ export default function CheckInPage() {
   const [error, setError] = useState("");
 
   function loadRoster() {
+    setRosterError(false);
     return fetch("/api/attendees")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load attendees");
+        return res.json();
+      })
       .then((data) => setRoster(data.attendees ?? []))
-      .catch(() => setRoster((prev) => prev ?? []));
+      .catch(() => {
+        setRosterError(true);
+        setRoster((prev) => prev ?? []);
+      });
   }
 
   useEffect(() => {
@@ -148,7 +156,20 @@ export default function CheckInPage() {
             </div>
           )}
 
-          {roster !== null && query.trim().length >= 2 && (
+          {rosterError && (
+            <div className="flex items-center justify-between gap-2 mt-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <span>Couldn&apos;t load the attendee list. Please try again.</span>
+              <button
+                type="button"
+                onClick={loadRoster}
+                className="shrink-0 font-medium underline hover:no-underline"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {roster !== null && !rosterError && query.trim().length >= 2 && (
             <div className="absolute left-0 right-0 top-full mt-2 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg z-20">
               {matches.map((m) => (
                 <button
