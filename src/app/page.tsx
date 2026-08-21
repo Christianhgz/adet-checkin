@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 type Match = {
@@ -72,7 +73,15 @@ export default function CheckInPage() {
     <div className="min-h-screen flex items-center justify-center px-4 py-16">
       <div className="w-full max-w-md bg-surface rounded-3xl shadow-sm border border-border p-8 space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl">Event check-in</h1>
+          <Image
+            src="/adet-logo-green.svg"
+            alt="ADET logo"
+            width={160}
+            height={113}
+            className="h-16 w-auto mx-auto"
+            priority
+          />
+          <h1 className="text-3xl">ADET check-in</h1>
           <p className="text-base text-foreground-muted">Find your name to check in</p>
         </div>
 
