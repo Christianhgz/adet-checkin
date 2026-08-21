@@ -20,8 +20,7 @@ export type Metrics = {
   totalRegistered: number;
   totalCheckedIn: number;
   checkInRate: number;
-  perEvent: { event: string; registered: number; checkedIn: number }[];
-  checkInsOverTime: { time: string; count: number }[];
+  perEvent: { event: string; attendees: number }[];
 };
 
 let client: sheets_v4.Sheets | null = null;
@@ -131,29 +130,17 @@ export async function checkInAttendee(
 
 export function computeMetrics(roster: Attendee[]): Metrics {
   const totalRegistered = roster.length;
-  const checkedInList = roster.filter((a) => a.checkedIn);
-  const totalCheckedIn = checkedInList.length;
+  const totalCheckedIn = roster.filter((a) => a.checkedIn).length;
 
-  const eventMap = new Map<string, { registered: number; checkedIn: number }>();
-  for (const a of roster) {
-    for (const ev of a.events) {
-      const entry = eventMap.get(ev) ?? { registered: 0, checkedIn: 0 };
-      entry.registered += 1;
-      if (a.checkedIn) entry.checkedIn += 1;
-      eventMap.set(ev, entry);
-    }
-  }
-
-  const checkInsOverTime = checkedInList
-    .filter((a): a is Attendee & { checkedInAt: string } => Boolean(a.checkedInAt))
-    .sort((a, b) => (a.checkedInAt < b.checkedInAt ? -1 : 1))
-    .map((a, i) => ({ time: a.checkedInAt, count: i + 1 }));
+  const perEvent = EVENTS.map((event) => ({
+    event,
+    attendees: roster.filter((a) => a.events.includes(event)).length,
+  }));
 
   return {
     totalRegistered,
     totalCheckedIn,
     checkInRate: totalRegistered ? totalCheckedIn / totalRegistered : 0,
-    perEvent: Array.from(eventMap.entries()).map(([event, v]) => ({ event, ...v })),
-    checkInsOverTime,
+    perEvent,
   };
 }

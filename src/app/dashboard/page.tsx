@@ -8,5 +8,7 @@ export default async function DashboardPage() {
   const authed = store.get(DASHBOARD_COOKIE)?.value === dashboardToken();
 
   if (!authed) return <DashboardLogin />;
-  return <DashboardView />;
+
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEET_ID}/edit`;
+  return <DashboardView sheetUrl={sheetUrl} />;
 }
