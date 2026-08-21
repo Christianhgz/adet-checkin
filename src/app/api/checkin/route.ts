@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkInAttendee, getRoster } from "@/lib/sheets";
-import { EVENTS, REQUIRED_EVENT_COUNT } from "@/lib/events";
+import { EVENTS, EventName, TIME_SLOTS, TimeSlot } from "@/lib/events";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -9,10 +9,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid row" }, { status: 400 });
   }
 
-  const rawEvents = Array.isArray(body?.events) ? body.events : [];
-  const events = [...new Set(rawEvents)].filter(
-    (e): e is string => typeof e === "string" && (EVENTS as readonly string[]).includes(e),
-  );
+  const rawSelections = body?.selections;
+  const selections: Partial<Record<TimeSlot, EventName>> = {};
+  if (rawSelections && typeof rawSelections === "object") {
+    for (const slot of TIME_SLOTS) {
+      const value = rawSelections[slot];
+      if (typeof value === "string" && (EVENTS as readonly string[]).includes(value)) {
+        selections[slot] = value as EventName;
+      }
+    }
+  }
 
   const roster = await getRoster();
   const attendee = roster.find((a) => a.row === row);
@@ -20,11 +26,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Attendee not found" }, { status: 404 });
   }
 
-  const result = await checkInAttendee(row, events);
-  if (result.status === "invalid_event_count") {
+  const result = await checkInAttendee(row, selections);
+
+  if (result.status === "invalid_selection") {
+    return NextResponse.json({ error: result.message }, { status: 400 });
+  }
+  if (result.status === "slot_full") {
     return NextResponse.json(
-      { error: `Select exactly ${REQUIRED_EVENT_COUNT} of the ${EVENTS.length} events before checking in` },
-      { status: 400 },
+      { error: `${result.event} at ${result.slot} just filled up — please pick a different session.` },
+      { status: 409 },
     );
   }
 
@@ -33,6 +43,6 @@ export async function POST(req: NextRequest) {
     lastName: attendee.lastName,
     alreadyCheckedIn: result.status === "already",
     checkedInAt: result.checkedInAt,
-    events: result.events,
+    selections: result.selections,
   });
 }

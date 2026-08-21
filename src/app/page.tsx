@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { EVENTS, REQUIRED_EVENT_COUNT } from "@/lib/events";
+import { EVENT_INFO, EVENTS, EventName, TIME_SLOTS, TimeSlot } from "@/lib/events";
 
 type Match = {
   row: number;
@@ -12,12 +12,13 @@ type Match = {
   events: string[];
   checkedIn: boolean;
   checkedInAt: string | null;
+  slots: Partial<Record<TimeSlot, EventName>>;
 };
 
 type CheckInResult = {
   alreadyCheckedIn: boolean;
   checkedInAt: string;
-  events: string[];
+  selections: Partial<Record<TimeSlot, EventName>>;
 };
 
 export default function CheckInPage() {
@@ -25,7 +26,7 @@ export default function CheckInPage() {
   const [roster, setRoster] = useState<Match[] | null>(null);
   const [rosterError, setRosterError] = useState(false);
   const [selected, setSelected] = useState<Match | null>(null);
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [selections, setSelections] = useState<Partial<Record<TimeSlot, EventName>>>({});
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -56,11 +57,33 @@ export default function CheckInPage() {
       .slice(0, 8);
   }, [roster, query]);
 
-  function toggleEvent(name: string) {
-    setSelectedEvents((prev) => {
-      if (prev.includes(name)) return prev.filter((e) => e !== name);
-      if (prev.length >= REQUIRED_EVENT_COUNT) return prev;
-      return [...prev, name];
+  const takenCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!roster) return map;
+    for (const a of roster) {
+      if (!a.checkedIn) continue;
+      for (const slot of TIME_SLOTS) {
+        const event = a.slots[slot];
+        if (event) map.set(`${slot}|${event}`, (map.get(`${slot}|${event}`) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [roster]);
+
+  function isFull(slot: TimeSlot, event: EventName) {
+    const taken = takenCounts.get(`${slot}|${event}`) ?? 0;
+    return taken >= EVENT_INFO[event].capacity;
+  }
+
+  function pickEvent(slot: TimeSlot, event: EventName) {
+    setSelections((prev) => {
+      const next = { ...prev };
+      if (next[slot] === event) {
+        delete next[slot];
+      } else {
+        next[slot] = event;
+      }
+      return next;
     });
   }
 
@@ -71,7 +94,7 @@ export default function CheckInPage() {
     const res = await fetch("/api/checkin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ row: selected.row, events: selectedEvents }),
+      body: JSON.stringify({ row: selected.row, selections }),
     });
     setSubmitting(false);
     const data = await res.json();
@@ -82,7 +105,7 @@ export default function CheckInPage() {
     setResult({
       alreadyCheckedIn: data.alreadyCheckedIn,
       checkedInAt: data.checkedInAt,
-      events: data.events,
+      selections: data.selections,
     });
     loadRoster();
   }
@@ -90,10 +113,12 @@ export default function CheckInPage() {
   function closeModal() {
     setQuery("");
     setSelected(null);
-    setSelectedEvents([]);
+    setSelections({});
     setResult(null);
     setError("");
   }
+
+  const allSlotsFilled = TIME_SLOTS.every((slot) => selections[slot]);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-16">
@@ -206,11 +231,11 @@ export default function CheckInPage() {
 
       {selected && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-olive-darker/40 backdrop-blur-sm px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-olive-darker/40 backdrop-blur-sm px-4 py-8"
           onClick={closeModal}
         >
           <div
-            className="relative w-full max-w-md bg-surface rounded-3xl shadow-lg border border-border p-8"
+            className="relative w-full max-w-md max-h-full overflow-y-auto bg-surface rounded-3xl shadow-lg border border-border p-8"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -228,11 +253,14 @@ export default function CheckInPage() {
                 <p className="text-xl font-semibold text-foreground">
                   {selected.firstName} {selected.lastName} is already checked in
                 </p>
-                {selected.events.length > 0 && (
-                  <p className="text-sm text-foreground-muted">
-                    Events: {selected.events.join(", ")}
-                  </p>
-                )}
+                <div className="text-left space-y-1.5">
+                  {TIME_SLOTS.map((slot) => (
+                    <p key={slot} className="text-sm text-foreground-muted">
+                      <span className="font-medium text-foreground">{slot}:</span>{" "}
+                      {selected.slots[slot] ?? "—"}
+                    </p>
+                  ))}
+                </div>
                 {selected.checkedInAt && (
                   <p className="text-sm text-foreground-muted">
                     {new Date(selected.checkedInAt).toLocaleTimeString([], {
@@ -253,61 +281,62 @@ export default function CheckInPage() {
                   </p>
                 </div>
 
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    Select exactly {REQUIRED_EVENT_COUNT} of {EVENTS.length} events
-                  </p>
-                  <p className="text-xs text-foreground-muted mb-2">
-                    {selectedEvents.length} of {REQUIRED_EVENT_COUNT} selected
-                  </p>
-                  <div className="space-y-2">
-                    {EVENTS.map((name) => {
-                      const checked = selectedEvents.includes(name);
-                      const atCap = !checked && selectedEvents.length >= REQUIRED_EVENT_COUNT;
-                      return (
-                        <button
-                          key={name}
-                          type="button"
-                          onClick={() => toggleEvent(name)}
-                          disabled={atCap}
-                          aria-pressed={checked}
-                          className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
-                            checked
-                              ? "border-olive bg-cream-dark"
-                              : atCap
-                                ? "border-border opacity-50 cursor-not-allowed"
-                                : "border-border hover:border-olive"
-                          }`}
-                        >
-                          <span
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-                              checked ? "bg-olive border-olive" : "border-border"
-                            }`}
-                          >
-                            {checked && (
-                              <svg
-                                viewBox="0 0 24 24"
-                                className="h-3.5 w-3.5 text-cream"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={3}
+                <div className="space-y-4">
+                  {TIME_SLOTS.map((slot) => (
+                    <div key={slot}>
+                      <p className="text-sm font-medium text-foreground mb-2">{slot}</p>
+                      <div className="space-y-2">
+                        {EVENTS.map((event) => {
+                          const checked = selections[slot] === event;
+                          const usedElsewhere = TIME_SLOTS.some(
+                            (s) => s !== slot && selections[s] === event,
+                          );
+                          const full = isFull(slot, event);
+                          const disabled = !checked && (usedElsewhere || full);
+                          const info = EVENT_INFO[event];
+                          const taken = takenCounts.get(`${slot}|${event}`) ?? 0;
+                          return (
+                            <button
+                              key={event}
+                              type="button"
+                              onClick={() => pickEvent(slot, event)}
+                              disabled={disabled}
+                              aria-pressed={checked}
+                              className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                                checked
+                                  ? "border-olive bg-cream-dark"
+                                  : disabled
+                                    ? "border-border opacity-50 cursor-not-allowed"
+                                    : "border-border hover:border-olive"
+                              }`}
+                            >
+                              <span
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                                  checked ? "bg-olive border-olive" : "border-border"
+                                }`}
                               >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </span>
-                          <span className="font-medium text-foreground">{name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                                {checked && <span className="h-2 w-2 rounded-full bg-cream" />}
+                              </span>
+                              <span className="flex-1">
+                                <span className="block font-medium text-foreground">{event}</span>
+                                <span className="block text-xs text-foreground-muted">
+                                  {info.location}
+                                  {full && !checked ? " · Full" : ` · ${taken}/${info.capacity}`}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
 
                 <button
                   onClick={handleConfirm}
-                  disabled={submitting || selectedEvents.length !== REQUIRED_EVENT_COUNT}
+                  disabled={submitting || !allSlotsFilled}
                   className="w-full rounded-lg bg-primary text-primary-foreground py-3 font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? "Checking in..." : "Confirm check-in"}
@@ -340,11 +369,14 @@ export default function CheckInPage() {
                       minute: "2-digit",
                     })}
                   </p>
-                  {result.events.length > 0 && (
-                    <p className="text-sm text-foreground-muted mt-2">
-                      Events: {result.events.join(", ")}
+                </div>
+                <div className="text-left space-y-1.5">
+                  {TIME_SLOTS.map((slot) => (
+                    <p key={slot} className="text-sm text-foreground-muted">
+                      <span className="font-medium text-foreground">{slot}:</span>{" "}
+                      {result.selections[slot] ?? "—"}
                     </p>
-                  )}
+                  ))}
                 </div>
                 <p className="text-xs text-foreground-muted">Click the × above to close</p>
               </div>

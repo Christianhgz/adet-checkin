@@ -11,6 +11,7 @@ export async function GET() {
       events: a.events,
       checkedIn: a.checkedIn,
       checkedInAt: a.checkedInAt,
+      slots: a.slots,
     })),
   });
 }
