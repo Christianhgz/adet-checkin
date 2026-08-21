@@ -42,7 +42,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
       <div className="max-w-4xl mx-auto space-y-8">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-surface/70 hover:text-surface transition-colors"
+          className="inline-flex items-center gap-1.5 text-base underline underline-offset-2 text-surface/70 hover:text-surface transition-colors"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
