@@ -27,25 +27,25 @@ export default function DashboardLogin() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4"
+        className="w-full max-w-sm bg-surface rounded-3xl shadow-sm border border-border p-8 space-y-4"
       >
-        <h1 className="text-xl font-semibold text-slate-900">Dashboard login</h1>
+        <h1 className="text-xl">Dashboard login</h1>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-olive"
           autoFocus
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-slate-900 text-white py-2 font-medium disabled:opacity-50"
+          className="w-full rounded-lg bg-primary text-primary-foreground py-2 font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
         >
           {loading ? "Checking..." : "Enter"}
         </button>

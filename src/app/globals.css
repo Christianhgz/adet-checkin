@@ -1,26 +1,79 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* palette */
+  --color-cream: #f6f9eb;
+  --color-cream-dark: #e7ecd4;
+  --color-cream-darker: #cdd7ab;
+  --color-olive: #5c6969;
+  --color-olive-dark: #47504f;
+  --color-olive-darker: #2f3736;
+
+  /* semantic */
+  --background: var(--color-cream);
+  --foreground: var(--color-olive-darker);
+  --foreground-muted: var(--color-olive-dark);
+  --surface: #ffffff;
+  --border: var(--color-cream-darker);
+  --primary: var(--color-olive);
+  --primary-hover: var(--color-olive-dark);
+  --primary-foreground: var(--color-cream);
 }
 
 @theme inline {
+  --color-cream: var(--color-cream);
+  --color-cream-dark: var(--color-cream-dark);
+  --color-cream-darker: var(--color-cream-darker);
+  --color-olive: var(--color-olive);
+  --color-olive-dark: var(--color-olive-dark);
+  --color-olive-darker: var(--color-olive-darker);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-foreground-muted: var(--foreground-muted);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-heading: var(--font-fraunces);
+  --font-body: var(--font-karla);
+
+  --text-xs: 12px;
+  --text-xs--line-height: 1.4;
+  --text-sm: 14px;
+  --text-sm--line-height: 1.5;
+  --text-base: 16px;
+  --text-base--line-height: 1.6;
+  --text-lg: 18px;
+  --text-lg--line-height: 1.5;
+  --text-xl: 20px;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 1.2;
+  --text-4xl: 40px;
+  --text-4xl--line-height: 1.15;
+  --text-5xl: 48px;
+  --text-5xl--line-height: 1.1;
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(circle at 50% 0%, var(--color-cream) 0%, var(--color-cream-dark) 100%);
+  background-attachment: fixed;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--color-olive-darker);
 }
