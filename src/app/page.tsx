@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EVENTS, MIN_EVENTS_REQUIRED } from "@/lib/events";
 
 type Match = {
@@ -21,37 +21,31 @@ type CheckInResult = {
 
 export default function CheckInPage() {
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<Match[]>([]);
+  const [roster, setRoster] = useState<Match[] | null>(null);
   const [selected, setSelected] = useState<Match | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  function loadRoster() {
+    return fetch("/api/attendees")
+      .then((res) => res.json())
+      .then((data) => setRoster(data.attendees ?? []))
+      .catch(() => setRoster((prev) => prev ?? []));
+  }
+
   useEffect(() => {
-    if (selected || result) return;
-    if (query.trim().length < 2) {
-      setMatches([]);
-      return;
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/attendees/search?q=${encodeURIComponent(query)}`,
-          { signal: controller.signal },
-        );
-        const data = await res.json();
-        setMatches(data.matches ?? []);
-      } catch {
-        // request was aborted by a newer keystroke; ignore
-      }
-    }, 250);
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [query, selected, result]);
+    loadRoster();
+  }, []);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!roster || q.length < 2) return [];
+    return roster
+      .filter((a) => `${a.firstName} ${a.lastName}`.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [roster, query]);
 
   function toggleEvent(name: string) {
     setSelectedEvents((prev) =>
@@ -79,11 +73,11 @@ export default function CheckInPage() {
       checkedInAt: data.checkedInAt,
       events: data.events,
     });
+    loadRoster();
   }
 
   function reset() {
     setQuery("");
-    setMatches([]);
     setSelected(null);
     setSelectedEvents([]);
     setResult(null);
@@ -112,9 +106,35 @@ export default function CheckInPage() {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Type your first or last name"
-              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-base text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-olive"
+              disabled={roster === null}
+              placeholder={roster === null ? "Loading attendee list…" : "Type your first or last name"}
+              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-base text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-olive disabled:opacity-60"
             />
+            {roster === null && (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-foreground-muted">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 animate-spin text-olive"
+                  fill="none"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeOpacity="0.25"
+                  />
+                  <path
+                    d="M21 12a9 9 0 0 0-9-9"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Loading attendee list…
+              </div>
+            )}
             <div className="space-y-2">
               {matches.map((m) => (
                 <button

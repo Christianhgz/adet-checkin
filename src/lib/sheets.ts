@@ -87,14 +87,6 @@ export async function getRoster(): Promise<Attendee[]> {
   return data;
 }
 
-export function searchAttendees(roster: Attendee[], query: string): Attendee[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  return roster
-    .filter((a) => `${a.firstName} ${a.lastName}`.toLowerCase().includes(q))
-    .slice(0, 8);
-}
-
 export type CheckInOutcome =
   | { status: "already"; checkedInAt: string; events: string[] }
   | { status: "checked_in"; checkedInAt: string; events: string[] }
