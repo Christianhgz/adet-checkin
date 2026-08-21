@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Metrics = {
@@ -39,6 +40,16 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   return (
     <div className="min-h-screen px-4 py-12">
       <div className="max-w-4xl mx-auto space-y-8">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-sm text-surface/70 hover:text-surface transition-colors"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to check-in
+        </Link>
+
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-3xl text-surface">Event check-in dashboard</h1>
           <a

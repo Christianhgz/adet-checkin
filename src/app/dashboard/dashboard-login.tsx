@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
@@ -27,7 +28,17 @@ export default function DashboardLogin() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
+      <Link
+        href="/"
+        className="inline-flex items-center gap-1.5 text-sm text-surface/70 hover:text-surface transition-colors"
+      >
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to check-in
+      </Link>
+
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-sm bg-surface rounded-3xl shadow-sm border border-border p-8 space-y-4"
