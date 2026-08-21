@@ -162,7 +162,7 @@ export default function CheckInPage() {
 
       {selected && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-olive-darker/40 px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-olive-darker/40 backdrop-blur-sm px-4"
           onClick={closeModal}
         >
           <div
