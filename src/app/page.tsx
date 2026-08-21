@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EVENTS, REQUIRED_EVENT_COUNT } from "@/lib/events";
 
@@ -157,6 +158,15 @@ export default function CheckInPage() {
               )}
             </div>
           )}
+        </div>
+
+        <div className="text-center">
+          <Link
+            href="/dashboard"
+            className="text-xs text-foreground-muted/60 hover:text-foreground-muted transition-colors"
+          >
+            Admin dashboard
+          </Link>
         </div>
       </div>
 
