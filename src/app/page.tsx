@@ -176,7 +176,7 @@ export default function CheckInPage() {
         <div className="text-center">
           <Link
             href="/dashboard"
-            className="text-xs text-foreground-muted/60 hover:text-foreground-muted transition-colors"
+            className="text-sm underline underline-offset-2 text-foreground-muted/60 hover:text-foreground-muted transition-colors"
           >
             Admin dashboard
           </Link>
