@@ -39,6 +39,10 @@ function getClient(): sheets_v4.Sheets {
   return client;
 }
 
+function columnsToEvents(columns: (string | undefined)[]): string[] {
+  return EVENTS.filter((_, i) => (columns[i] ?? "").trim().toUpperCase() === "YES");
+}
+
 function rowToAttendee(row: string[], index: number): Attendee {
   const [
     firstName = "",
@@ -57,7 +61,7 @@ function rowToAttendee(row: string[], index: number): Attendee {
     firstName: firstName.trim(),
     lastName: lastName.trim(),
     email: email.trim(),
-    events: [e1, e2, e3, e4].map((e) => e.trim()).filter(Boolean),
+    events: columnsToEvents([e1, e2, e3, e4]),
     totalEvents: totalEvents.trim(),
     checkedIn: checkedIn.trim().toUpperCase() === "TRUE",
     checkedInAt: checkedInAt.trim() || null,
@@ -111,7 +115,7 @@ export async function checkInAttendee(
     return {
       status: "already",
       checkedInAt: checkedInAt ?? "",
-      events: [e1, e2, e3, e4].map((e) => e.trim()).filter(Boolean),
+      events: columnsToEvents([e1, e2, e3, e4]),
     };
   }
 
@@ -120,7 +124,7 @@ export async function checkInAttendee(
   }
 
   const now = new Date().toISOString();
-  const eventColumns = EVENTS.map((name) => (selectedEvents.includes(name) ? name : ""));
+  const eventColumns = EVENTS.map((name) => (selectedEvents.includes(name) ? "YES" : "NO"));
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: `${SHEET_NAME}!D${row}:J${row}`,
