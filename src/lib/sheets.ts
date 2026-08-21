@@ -1,4 +1,5 @@
 import { google, sheets_v4 } from "googleapis";
+import { EVENTS, MIN_EVENTS_REQUIRED } from "./events";
 
 const SHEET_NAME = "Sheet1";
 const DATA_RANGE = `${SHEET_NAME}!A2:J1000`;
@@ -90,28 +91,46 @@ export function searchAttendees(roster: Attendee[], query: string): Attendee[] {
     .slice(0, 8);
 }
 
+export type CheckInOutcome =
+  | { status: "already"; checkedInAt: string; events: string[] }
+  | { status: "checked_in"; checkedInAt: string; events: string[] }
+  | { status: "insufficient_events" };
+
 export async function checkInAttendee(
   row: number,
-): Promise<{ alreadyCheckedIn: boolean; checkedInAt: string }> {
+  selectedEvents: string[],
+): Promise<CheckInOutcome> {
   const sheets = getClient();
   const existing = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!I${row}:J${row}`,
+    range: `${SHEET_NAME}!D${row}:J${row}`,
   });
-  const [checkedIn, checkedInAt] = existing.data.values?.[0] ?? [];
+  const [e1 = "", e2 = "", e3 = "", e4 = "", , checkedIn = "", checkedInAt = ""] =
+    existing.data.values?.[0] ?? [];
   if (typeof checkedIn === "string" && checkedIn.trim().toUpperCase() === "TRUE") {
-    return { alreadyCheckedIn: true, checkedInAt: checkedInAt ?? "" };
+    return {
+      status: "already",
+      checkedInAt: checkedInAt ?? "",
+      events: [e1, e2, e3, e4].map((e) => e.trim()).filter(Boolean),
+    };
+  }
+
+  if (selectedEvents.length < MIN_EVENTS_REQUIRED) {
+    return { status: "insufficient_events" };
   }
 
   const now = new Date().toISOString();
+  const eventColumns = EVENTS.map((name) => (selectedEvents.includes(name) ? name : ""));
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!I${row}:J${row}`,
+    range: `${SHEET_NAME}!D${row}:J${row}`,
     valueInputOption: "RAW",
-    requestBody: { values: [["TRUE", now]] },
+    requestBody: {
+      values: [[...eventColumns, String(selectedEvents.length), "TRUE", now]],
+    },
   });
   cache = null;
-  return { alreadyCheckedIn: false, checkedInAt: now };
+  return { status: "checked_in", checkedInAt: now, events: selectedEvents };
 }
 
 export function computeMetrics(roster: Attendee[]): Metrics {

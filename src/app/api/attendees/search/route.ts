@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
       lastName: a.lastName,
       events: a.events,
       checkedIn: a.checkedIn,
+      checkedInAt: a.checkedInAt,
     })),
   });
 }

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { EVENTS, MIN_EVENTS_REQUIRED } from "@/lib/events";
 
 type Match = {
   row: number;
@@ -9,19 +10,23 @@ type Match = {
   lastName: string;
   events: string[];
   checkedIn: boolean;
+  checkedInAt: string | null;
 };
 
 type CheckInResult = {
   alreadyCheckedIn: boolean;
   checkedInAt: string;
+  events: string[];
 };
 
 export default function CheckInPage() {
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Match[]>([]);
   const [selected, setSelected] = useState<Match | null>(null);
+  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (selected || result) return;
@@ -48,25 +53,41 @@ export default function CheckInPage() {
     };
   }, [query, selected, result]);
 
+  function toggleEvent(name: string) {
+    setSelectedEvents((prev) =>
+      prev.includes(name) ? prev.filter((e) => e !== name) : [...prev, name],
+    );
+  }
+
   async function handleConfirm() {
     if (!selected) return;
     setSubmitting(true);
+    setError("");
     const res = await fetch("/api/checkin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ row: selected.row }),
+      body: JSON.stringify({ row: selected.row, events: selectedEvents }),
     });
     setSubmitting(false);
-    if (!res.ok) return;
     const data = await res.json();
-    setResult({ alreadyCheckedIn: data.alreadyCheckedIn, checkedInAt: data.checkedInAt });
+    if (!res.ok) {
+      setError(data.error ?? "Something went wrong. Please try again.");
+      return;
+    }
+    setResult({
+      alreadyCheckedIn: data.alreadyCheckedIn,
+      checkedInAt: data.checkedInAt,
+      events: data.events,
+    });
   }
 
   function reset() {
     setQuery("");
     setMatches([]);
     setSelected(null);
+    setSelectedEvents([]);
     setResult(null);
+    setError("");
   }
 
   return (
@@ -81,7 +102,7 @@ export default function CheckInPage() {
             className="h-16 w-auto mx-auto"
             priority
           />
-          <h1 className="text-3xl">ADET check-in</h1>
+          <h1 className="text-3xl">check-in</h1>
           <p className="text-base text-foreground-muted">Find your name to check in</p>
         </div>
 
@@ -118,33 +139,104 @@ export default function CheckInPage() {
           </>
         )}
 
-        {selected && !result && (
-          <div className="space-y-4">
+        {selected && !result && selected.checkedIn && (
+          <div className="text-center space-y-4">
+            <div>
+              <p className="text-xl font-semibold text-foreground">
+                {selected.firstName} {selected.lastName} is already checked in
+              </p>
+              {selected.events.length > 0 && (
+                <p className="text-sm text-foreground-muted mt-2">
+                  Events: {selected.events.join(", ")}
+                </p>
+              )}
+              {selected.checkedInAt && (
+                <p className="text-sm text-foreground-muted mt-1">
+                  {new Date(selected.checkedInAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+            </div>
+            <button onClick={reset} className="text-sm text-foreground-muted underline hover:text-olive">
+              Check in someone else
+            </button>
+          </div>
+        )}
+
+        {selected && !result && !selected.checkedIn && (
+          <div className="space-y-5">
             <div className="text-center">
               <p className="text-foreground-muted text-sm">Confirm this is you:</p>
               <p className="text-xl font-semibold text-foreground mt-1">
                 {selected.firstName} {selected.lastName}
               </p>
-              {selected.events.length > 0 && (
-                <p className="text-sm text-foreground-muted mt-2">
-                  Registered for: {selected.events.join(", ")}
-                </p>
-              )}
-              {selected.checkedIn && (
-                <p className="text-sm text-olive font-medium mt-2">You&apos;re already checked in.</p>
-              )}
             </div>
+
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Select at least {MIN_EVENTS_REQUIRED} of {EVENTS.length} events
+              </p>
+              <p className="text-xs text-foreground-muted mb-2">
+                {selectedEvents.length} of {MIN_EVENTS_REQUIRED} selected
+              </p>
+              <div className="space-y-2">
+                {EVENTS.map((name) => {
+                  const checked = selectedEvents.includes(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleEvent(name)}
+                      aria-pressed={checked}
+                      className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                        checked
+                          ? "border-olive bg-cream-dark"
+                          : "border-border hover:border-olive"
+                      }`}
+                    >
+                      <span
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                          checked ? "bg-olive border-olive" : "border-border"
+                        }`}
+                      >
+                        {checked && (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-3.5 w-3.5 text-cream"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={3}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="font-medium text-foreground">{name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+
             <div className="flex gap-3">
               <button
-                onClick={() => setSelected(null)}
+                onClick={() => {
+                  setSelected(null);
+                  setSelectedEvents([]);
+                  setError("");
+                }}
                 className="flex-1 rounded-lg border border-border py-3 font-medium text-foreground-muted hover:border-olive transition-colors"
               >
                 Not me
               </button>
               <button
                 onClick={handleConfirm}
-                disabled={submitting}
-                className="flex-1 rounded-lg bg-primary text-primary-foreground py-3 font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                disabled={submitting || selectedEvents.length < MIN_EVENTS_REQUIRED}
+                className="flex-1 rounded-lg bg-primary text-primary-foreground py-3 font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? "Checking in..." : "Confirm check-in"}
               </button>
@@ -177,6 +269,11 @@ export default function CheckInPage() {
                   minute: "2-digit",
                 })}
               </p>
+              {result.events.length > 0 && (
+                <p className="text-sm text-foreground-muted mt-2">
+                  Events: {result.events.join(", ")}
+                </p>
+              )}
             </div>
             <button onClick={reset} className="text-sm text-foreground-muted underline hover:text-olive">
               Check in someone else
