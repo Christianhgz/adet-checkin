@@ -43,7 +43,7 @@ export default function DashboardView() {
 
   if (!metrics) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-foreground-muted">
+      <div className="min-h-screen flex items-center justify-center text-cream">
         Loading metrics…
       </div>
     );
@@ -52,7 +52,7 @@ export default function DashboardView() {
   return (
     <div className="min-h-screen px-4 py-12">
       <div className="max-w-4xl mx-auto space-y-8">
-        <h1 className="text-3xl">Event check-in dashboard</h1>
+        <h1 className="text-3xl text-cream">Event check-in dashboard</h1>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard label="Registered" value={metrics.totalRegistered} />

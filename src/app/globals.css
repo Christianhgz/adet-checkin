@@ -61,7 +61,7 @@
 }
 
 body {
-  background: radial-gradient(circle at 50% 0%, var(--color-cream) 0%, var(--color-cream-dark) 100%);
+  background: radial-gradient(circle at 50% 0%, var(--color-olive) 0%, var(--color-olive-darker) 100%);
   background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-body);
