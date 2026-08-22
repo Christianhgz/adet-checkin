@@ -3,6 +3,8 @@ import { DAYS } from "@/lib/days";
 import { getActiveDay } from "@/lib/sheets";
 import { apiErrorResponse } from "@/lib/api-error";
 
+export const revalidate = 5;
+
 export async function GET() {
   try {
     const day = await getActiveDay();

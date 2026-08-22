@@ -56,7 +56,7 @@ function getClient(): sheets_v4.Sheets {
 // + jitter. Under a burst of concurrent check-ins this is what keeps
 // individual requests succeeding instead of failing outright when Google's
 // per-minute quota is momentarily exceeded.
-async function withRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
