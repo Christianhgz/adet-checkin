@@ -1,33 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkInAttendee, getRoster } from "@/lib/sheets";
-import { EVENTS, EventName, TIME_SLOTS, TimeSlot } from "@/lib/events";
+import { checkInAttendee, getActiveDay } from "@/lib/sheets";
+import { DAYS } from "@/lib/days";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const row = Number(body?.row);
-  if (!Number.isInteger(row) || row < 2) {
-    return NextResponse.json({ error: "Invalid row" }, { status: 400 });
+  const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
+  if (!userId) {
+    return NextResponse.json({ error: "Invalid attendee" }, { status: 400 });
   }
 
+  const day = await getActiveDay();
+  const dayConfig = DAYS[day];
+
   const rawSelections = body?.selections;
-  const selections: Partial<Record<TimeSlot, EventName>> = {};
+  const selections: Record<string, string> = {};
   if (rawSelections && typeof rawSelections === "object") {
-    for (const slot of TIME_SLOTS) {
+    for (const slot of dayConfig.timeSlots) {
       const value = rawSelections[slot];
-      if (typeof value === "string" && (EVENTS as readonly string[]).includes(value)) {
-        selections[slot] = value as EventName;
+      if (typeof value === "string" && dayConfig.events.includes(value)) {
+        selections[slot] = value;
       }
     }
   }
 
-  const roster = await getRoster();
-  const attendee = roster.find((a) => a.row === row);
-  if (!attendee) {
+  const result = await checkInAttendee(day, userId, selections);
+
+  if (result.status === "not_found") {
     return NextResponse.json({ error: "Attendee not found" }, { status: 404 });
   }
-
-  const result = await checkInAttendee(row, selections);
-
   if (result.status === "invalid_selection") {
     return NextResponse.json({ error: result.message }, { status: 400 });
   }
@@ -39,8 +39,6 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
-    firstName: attendee.firstName,
-    lastName: attendee.lastName,
     alreadyCheckedIn: result.status === "already",
     checkedInAt: result.checkedInAt,
     selections: result.selections,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { DASHBOARD_COOKIE, dashboardToken } from "@/lib/auth";
-import { getRoster } from "@/lib/sheets";
+import { getActiveDay, getRoster } from "@/lib/sheets";
 
 export async function GET() {
   const store = await cookies();
@@ -10,10 +10,11 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const roster = await getRoster();
+  const day = await getActiveDay();
+  const roster = await getRoster(day);
   return NextResponse.json({
     attendees: roster.map((a) => ({
-      row: a.row,
+      userId: a.userId,
       firstName: a.firstName,
       lastName: a.lastName,
       email: a.email,

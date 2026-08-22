@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { EVENTS, EventName, TIME_SLOTS, TimeSlot } from "@/lib/events";
+
+type DayConfig = {
+  day: string;
+  label: string;
+  events: string[];
+  timeSlots: string[];
+  eventInfo: Record<string, { location: string; capacity: number }>;
+};
 
 type Metrics = {
   totalRegistered: number;
@@ -12,8 +19,8 @@ type Metrics = {
 };
 
 type SlotAvailability = {
-  slot: TimeSlot;
-  event: EventName;
+  slot: string;
+  event: string;
   location: string;
   capacity: number;
   taken: number;
@@ -21,43 +28,54 @@ type SlotAvailability = {
 };
 
 type AttendeeDetail = {
-  row: number;
+  userId: string;
   firstName: string;
   lastName: string;
   email: string;
   checkedIn: boolean;
   checkedInAt: string | null;
-  slots: Partial<Record<TimeSlot, EventName>>;
+  slots: Record<string, string>;
 };
 
 export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
+  const [dayConfig, setDayConfig] = useState<DayConfig | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [availability, setAvailability] = useState<SlotAvailability[] | null>(null);
-  const [activeSlot, setActiveSlot] = useState<TimeSlot>(TIME_SLOTS[0]);
+  const [activeSlot, setActiveSlot] = useState<string | null>(null);
   const [roster, setRoster] = useState<AttendeeDetail[] | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+
+  function loadAll() {
+    return Promise.all([
+      fetch("/api/day-config"),
+      fetch("/api/metrics"),
+      fetch("/api/availability"),
+      fetch("/api/dashboard/attendees"),
+    ]).then(async ([dayRes, metricsRes, availabilityRes, attendeesRes]) => {
+      if (dayRes.ok) {
+        const data = await dayRes.json();
+        setDayConfig(data);
+        setActiveSlot((prev) => (prev && data.timeSlots.includes(prev) ? prev : data.timeSlots[0]));
+      }
+      if (metricsRes.ok) setMetrics(await metricsRes.json());
+      if (availabilityRes.ok) {
+        const data = await availabilityRes.json();
+        setAvailability(data.availability);
+      }
+      if (attendeesRes.ok) {
+        const data = await attendeesRes.json();
+        setRoster(data.attendees);
+      }
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [metricsRes, availabilityRes, attendeesRes] = await Promise.all([
-        fetch("/api/metrics"),
-        fetch("/api/availability"),
-        fetch("/api/dashboard/attendees"),
-      ]);
-      if (metricsRes.ok) {
-        const data = await metricsRes.json();
-        if (!cancelled) setMetrics(data);
-      }
-      if (availabilityRes.ok) {
-        const data = await availabilityRes.json();
-        if (!cancelled) setAvailability(data.availability);
-      }
-      if (attendeesRes.ok) {
-        const data = await attendeesRes.json();
-        if (!cancelled) setRoster(data.attendees);
-      }
+      if (cancelled) return;
+      await loadAll();
     }
     load();
     const interval = setInterval(load, 15000);
@@ -66,6 +84,21 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
       clearInterval(interval);
     };
   }, []);
+
+  async function handleSwitchDay() {
+    if (!dayConfig) return;
+    const nextDay = dayConfig.day === "saturday" ? "sunday" : "saturday";
+    setSwitching(true);
+    await fetch("/api/dashboard/active-day", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ day: nextDay }),
+    });
+    setSelectedUserId(null);
+    setQuery("");
+    await loadAll();
+    setSwitching(false);
+  }
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -76,17 +109,19 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   }, [roster, query]);
 
   const selectedAttendee = useMemo(
-    () => roster?.find((a) => a.row === selectedRow) ?? null,
-    [roster, selectedRow],
+    () => roster?.find((a) => a.userId === selectedUserId) ?? null,
+    [roster, selectedUserId],
   );
 
-  if (!metrics) {
+  if (!metrics || !dayConfig) {
     return (
       <div className="min-h-screen flex items-center justify-center text-surface">
         Loading metrics…
       </div>
     );
   }
+
+  const otherDayLabel = dayConfig.day === "saturday" ? "Sunday" : "Saturday";
 
   return (
     <div className="min-h-screen px-4 py-12">
@@ -120,6 +155,19 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           </a>
         </div>
 
+        <div className="bg-surface rounded-3xl shadow-sm border border-border p-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-foreground-muted">
+            Currently showing: <span className="font-semibold text-foreground">{dayConfig.label}</span>
+          </p>
+          <button
+            onClick={handleSwitchDay}
+            disabled={switching}
+            className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+          >
+            {switching ? "Switching…" : `Switch to ${otherDayLabel}`}
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard label="Registered" value={metrics.totalRegistered} />
           <StatCard label="Checked in" value={metrics.totalCheckedIn} />
@@ -138,7 +186,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           </p>
 
           <div className="flex gap-2 mb-4">
-            {TIME_SLOTS.map((slot) => (
+            {dayConfig.timeSlots.map((slot) => (
               <button
                 key={slot}
                 type="button"
@@ -155,7 +203,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           </div>
 
           <div className="divide-y divide-border">
-            {EVENTS.map((event) => {
+            {dayConfig.events.map((event) => {
               const info = availability?.find((a) => a.slot === activeSlot && a.event === event);
               return (
                 <div key={event} className="flex items-center justify-between py-3">
@@ -184,7 +232,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
-                setSelectedRow(null);
+                setSelectedUserId(null);
               }}
               placeholder="Search by name…"
               className="w-full rounded-lg border border-border bg-background px-4 py-3 text-base text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-olive"
@@ -193,8 +241,8 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
               <div className="mt-2 rounded-lg border border-border overflow-hidden">
                 {matches.map((a) => (
                   <button
-                    key={a.row}
-                    onClick={() => setSelectedRow(a.row)}
+                    key={a.userId}
+                    onClick={() => setSelectedUserId(a.userId)}
                     className="w-full text-left px-4 py-3 hover:bg-cream-dark transition-colors border-b border-border last:border-b-0"
                   >
                     <span className="font-medium text-foreground">
@@ -223,7 +271,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
                 </div>
                 <button
                   onClick={() => {
-                    setSelectedRow(null);
+                    setSelectedUserId(null);
                     setQuery("");
                   }}
                   className="shrink-0 text-sm text-foreground-muted underline hover:text-foreground"
@@ -248,7 +296,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
               </p>
 
               <div className="space-y-1.5">
-                {TIME_SLOTS.map((slot) => (
+                {dayConfig.timeSlots.map((slot) => (
                   <p key={slot} className="text-sm text-foreground-muted">
                     <span className="font-medium text-foreground">{slot}:</span>{" "}
                     {selectedAttendee.slots[slot] ?? "—"}

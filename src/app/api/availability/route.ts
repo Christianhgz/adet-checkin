@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { computeAvailability, getRoster } from "@/lib/sheets";
+import { computeAvailability, getActiveDay, getRoster } from "@/lib/sheets";
 
 export async function GET() {
-  const roster = await getRoster();
-  return NextResponse.json({ availability: computeAvailability(roster) });
+  const day = await getActiveDay();
+  const roster = await getRoster(day);
+  return NextResponse.json({ availability: computeAvailability(roster, day) });
 }

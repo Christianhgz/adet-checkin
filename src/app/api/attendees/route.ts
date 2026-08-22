@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { getRoster } from "@/lib/sheets";
+import { getActiveDay, getRoster } from "@/lib/sheets";
 
 export async function GET() {
-  const roster = await getRoster();
+  const day = await getActiveDay();
+  const roster = await getRoster(day);
   return NextResponse.json({
     attendees: roster.map((a) => ({
-      row: a.row,
+      userId: a.userId,
       firstName: a.firstName,
       lastName: a.lastName,
       events: a.events,

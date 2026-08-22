@@ -3,43 +3,53 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { EVENT_INFO, EVENTS, EventName, TIME_SLOTS, TimeSlot } from "@/lib/events";
+
+type DayConfig = {
+  day: string;
+  label: string;
+  events: string[];
+  timeSlots: string[];
+  eventInfo: Record<string, { location: string; capacity: number }>;
+};
 
 type Match = {
-  row: number;
+  userId: string;
   firstName: string;
   lastName: string;
   events: string[];
   checkedIn: boolean;
   checkedInAt: string | null;
-  slots: Partial<Record<TimeSlot, EventName>>;
+  slots: Record<string, string>;
 };
 
 type CheckInResult = {
   alreadyCheckedIn: boolean;
   checkedInAt: string;
-  selections: Partial<Record<TimeSlot, EventName>>;
+  selections: Record<string, string>;
 };
 
 export default function CheckInPage() {
+  const [dayConfig, setDayConfig] = useState<DayConfig | null>(null);
   const [query, setQuery] = useState("");
   const [roster, setRoster] = useState<Match[] | null>(null);
   const [rosterError, setRosterError] = useState(false);
   const [selected, setSelected] = useState<Match | null>(null);
-  const [selections, setSelections] = useState<Partial<Record<TimeSlot, EventName>>>({});
-  const [expandedEvent, setExpandedEvent] = useState<EventName | null>(null);
+  const [selections, setSelections] = useState<Record<string, string>>({});
+  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   function loadRoster() {
     setRosterError(false);
-    return fetch("/api/attendees")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load attendees");
-        return res.json();
+    return Promise.all([fetch("/api/day-config"), fetch("/api/attendees")])
+      .then(async ([dayRes, attendeesRes]) => {
+        if (!dayRes.ok || !attendeesRes.ok) throw new Error("Failed to load");
+        const dayData = await dayRes.json();
+        const attendeesData = await attendeesRes.json();
+        setDayConfig(dayData);
+        setRoster(attendeesData.attendees ?? []);
       })
-      .then((data) => setRoster(data.attendees ?? []))
       .catch(() => {
         setRosterError(true);
         setRoster((prev) => prev ?? []);
@@ -60,34 +70,36 @@ export default function CheckInPage() {
 
   const takenCounts = useMemo(() => {
     const map = new Map<string, number>();
-    if (!roster) return map;
+    if (!roster || !dayConfig) return map;
     for (const a of roster) {
       if (!a.checkedIn) continue;
-      for (const slot of TIME_SLOTS) {
+      for (const slot of dayConfig.timeSlots) {
         const event = a.slots[slot];
         if (event) map.set(`${slot}|${event}`, (map.get(`${slot}|${event}`) ?? 0) + 1);
       }
     }
     return map;
-  }, [roster]);
+  }, [roster, dayConfig]);
 
-  function isFull(slot: TimeSlot, event: EventName) {
+  function isFull(slot: string, event: string) {
+    if (!dayConfig) return false;
     const taken = takenCounts.get(`${slot}|${event}`) ?? 0;
-    return taken >= EVENT_INFO[event].capacity;
+    return taken >= dayConfig.eventInfo[event].capacity;
   }
 
-  function slotForEvent(event: EventName): TimeSlot | undefined {
-    return TIME_SLOTS.find((slot) => selections[slot] === event);
+  function slotForEvent(event: string): string | undefined {
+    return dayConfig?.timeSlots.find((slot) => selections[slot] === event);
   }
 
-  function shortSlotLabel(slot: TimeSlot): string {
+  function shortSlotLabel(slot: string): string {
     return slot.split(" – ")[0] + " PM";
   }
 
-  function pickSlot(event: EventName, slot: TimeSlot) {
+  function pickSlot(event: string, slot: string) {
+    if (!dayConfig) return;
     setSelections((prev) => {
       const next = { ...prev };
-      for (const s of TIME_SLOTS) {
+      for (const s of dayConfig.timeSlots) {
         if (next[s] === event) delete next[s];
       }
       if (prev[slot] !== event) {
@@ -97,7 +109,7 @@ export default function CheckInPage() {
     });
   }
 
-  function toggleExpand(event: EventName) {
+  function toggleExpand(event: string) {
     setExpandedEvent((prev) => (prev === event ? null : event));
   }
 
@@ -108,7 +120,7 @@ export default function CheckInPage() {
     const res = await fetch("/api/checkin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ row: selected.row, selections }),
+      body: JSON.stringify({ userId: selected.userId, selections }),
     });
     setSubmitting(false);
     const data = await res.json();
@@ -133,7 +145,8 @@ export default function CheckInPage() {
     setError("");
   }
 
-  const allSlotsFilled = TIME_SLOTS.every((slot) => selections[slot]);
+  const allSlotsFilled = dayConfig?.timeSlots.every((slot) => selections[slot]) ?? false;
+  const ready = roster !== null && dayConfig !== null;
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-16">
@@ -148,7 +161,9 @@ export default function CheckInPage() {
             priority
           />
           <h1 className="text-3xl">check-in</h1>
-          <p className="text-base text-foreground-muted">Find your name to check in</p>
+          <p className="text-base text-foreground-muted">
+            {dayConfig ? `${dayConfig.label} — find your name to check in` : "Find your name to check in"}
+          </p>
         </div>
 
         <div className="relative">
@@ -156,8 +171,8 @@ export default function CheckInPage() {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            disabled={roster === null}
-            placeholder={roster === null ? "Loading attendee list…" : "Type your first or last name"}
+            disabled={!ready}
+            placeholder={ready ? "Type your first or last name" : "Loading attendee list…"}
             className="w-full rounded-lg border border-border bg-background px-4 py-3 pr-10 text-base text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-olive disabled:opacity-60"
           />
 
@@ -174,7 +189,7 @@ export default function CheckInPage() {
             </button>
           )}
 
-          {roster === null && (
+          {!ready && !rosterError && (
             <div className="flex items-center justify-center gap-2 py-4 text-sm text-foreground-muted">
               <svg viewBox="0 0 24 24" className="h-4 w-4 animate-spin text-olive" fill="none">
                 <circle
@@ -209,11 +224,11 @@ export default function CheckInPage() {
             </div>
           )}
 
-          {roster !== null && !rosterError && query.trim().length >= 2 && (
+          {ready && !rosterError && query.trim().length >= 2 && (
             <div className="absolute left-0 right-0 top-full mt-2 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg z-20">
               {matches.map((m) => (
                 <button
-                  key={m.row}
+                  key={m.userId}
                   onClick={() => setSelected(m)}
                   className="w-full text-left px-4 py-3 hover:bg-cream-dark transition-colors border-b border-border last:border-b-0"
                 >
@@ -244,7 +259,7 @@ export default function CheckInPage() {
         </div>
       </div>
 
-      {selected && (
+      {selected && dayConfig && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-olive-darker/40 backdrop-blur-sm px-4 py-8"
           onClick={closeModal}
@@ -269,7 +284,7 @@ export default function CheckInPage() {
                   {selected.firstName} {selected.lastName} is already checked in
                 </p>
                 <div className="text-left space-y-1.5">
-                  {TIME_SLOTS.map((slot) => (
+                  {dayConfig.timeSlots.map((slot) => (
                     <p key={slot} className="text-sm text-foreground-muted">
                       <span className="font-medium text-foreground">{slot}:</span>{" "}
                       {selected.slots[slot] ?? "—"}
@@ -298,11 +313,12 @@ export default function CheckInPage() {
 
                 <div>
                   <p className="text-sm font-medium text-foreground mb-3">
-                    Pick 3 of the 4 sessions, each in a different time slot
+                    Pick {dayConfig.timeSlots.length} of the {dayConfig.events.length} sessions, each in
+                    a different time slot
                   </p>
                   <div className="space-y-3">
-                    {EVENTS.map((event) => {
-                      const info = EVENT_INFO[event];
+                    {dayConfig.events.map((event) => {
+                      const info = dayConfig.eventInfo[event];
                       const selectedSlot = slotForEvent(event);
                       const eventChosen = selectedSlot !== undefined;
                       const expanded = expandedEvent === event || eventChosen;
@@ -346,7 +362,7 @@ export default function CheckInPage() {
 
                           {expanded && (
                             <div className="grid grid-cols-3 gap-2 px-3 pb-3">
-                              {TIME_SLOTS.map((slot) => {
+                              {dayConfig.timeSlots.map((slot) => {
                                 const checked = selections[slot] === event;
                                 const takenByOtherEvent =
                                   selections[slot] !== undefined && selections[slot] !== event;
@@ -418,7 +434,7 @@ export default function CheckInPage() {
                   </p>
                 </div>
                 <div className="text-left space-y-1.5">
-                  {TIME_SLOTS.map((slot) => (
+                  {dayConfig.timeSlots.map((slot) => (
                     <p key={slot} className="text-sm text-foreground-muted">
                       <span className="font-medium text-foreground">{slot}:</span>{" "}
                       {result.selections[slot] ?? "—"}
