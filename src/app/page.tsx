@@ -39,6 +39,7 @@ export default function CheckInPage() {
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [statusLoading, setStatusLoading] = useState(false);
 
   function loadRoster() {
     setRosterError(false);
@@ -59,6 +60,23 @@ export default function CheckInPage() {
   useEffect(() => {
     loadRoster();
   }, []);
+
+  async function selectAttendee(match: Match) {
+    setSelected(match);
+    setStatusLoading(true);
+    try {
+      const res = await fetch(`/api/attendee-status?userId=${encodeURIComponent(match.userId)}`);
+      if (res.ok) {
+        const fresh = await res.json();
+        setSelected((prev) => (prev && prev.userId === fresh.userId ? { ...prev, ...fresh } : prev));
+      }
+    } catch {
+      // Network hiccup — fall back to the (possibly slightly stale) search
+      // result rather than blocking the attendee entirely.
+    } finally {
+      setStatusLoading(false);
+    }
+  }
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -154,6 +172,7 @@ export default function CheckInPage() {
     setResult(null);
     setError("");
     setSubmitting(false);
+    setStatusLoading(false);
   }
 
   const allSlotsFilled = dayConfig?.timeSlots.every((slot) => selections[slot]) ?? false;
@@ -240,7 +259,7 @@ export default function CheckInPage() {
               {matches.map((m) => (
                 <button
                   key={m.userId}
-                  onClick={() => setSelected(m)}
+                  onClick={() => selectAttendee(m)}
                   className="w-full text-left px-4 py-3 hover:bg-cream-dark transition-colors border-b border-border last:border-b-0"
                 >
                   <span className="font-medium text-foreground">
@@ -289,7 +308,22 @@ export default function CheckInPage() {
               </svg>
             </button>
 
-            {!result && selected.checkedIn && (
+            {statusLoading && (
+              <div className="flex items-center justify-center gap-2 py-16 text-sm text-foreground-muted">
+                <svg viewBox="0 0 24 24" className="h-4 w-4 animate-spin text-olive" fill="none">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                  <path
+                    d="M21 12a9 9 0 0 0-9-9"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Checking status…
+              </div>
+            )}
+
+            {!statusLoading && !result && selected.checkedIn && (
               <div className="text-center space-y-4 pt-4">
                 <p className="text-xl font-semibold text-foreground">
                   {selected.firstName} {selected.lastName} is already checked in
@@ -313,7 +347,7 @@ export default function CheckInPage() {
               </div>
             )}
 
-            {!result && !selected.checkedIn && (
+            {!statusLoading && !result && !selected.checkedIn && (
               <div className="space-y-5 pt-4">
                 <div className="text-center">
                   <p className="text-foreground-muted text-sm">Confirm this is you:</p>

@@ -244,6 +244,16 @@ export async function getRoster(day: DayId): Promise<Attendee[]> {
   return data;
 }
 
+// Always-fresh, single-attendee lookup that bypasses both the in-memory
+// roster cache and (by not living behind a `revalidate`-cached route) the
+// edge cache. Used right before showing someone the check-in modal, so a
+// person who just checked in never sees a stale "not checked in" state from
+// the cached bulk roster used for search.
+export async function getFreshAttendeeStatus(day: DayId, userId: string): Promise<Attendee | null> {
+  const roster = await fetchDayRoster(DAYS[day]);
+  return roster.find((a) => a.userId === userId) ?? null;
+}
+
 export function computeAvailability(
   roster: Pick<Attendee, "checkedIn" | "slots">[],
   day: DayId,
