@@ -47,6 +47,17 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [expandedListEvent, setExpandedListEvent] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"name" | "status" | "time">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(key: "name" | "status" | "time") {
+    if (sortBy === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(key);
+      setSortDir("asc");
+    }
+  }
 
   async function loadAll() {
     try {
@@ -124,10 +135,28 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
 
   const sortedRoster = useMemo(() => {
     if (!roster) return [];
-    return [...roster].sort((a, b) =>
-      `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
-    );
-  }, [roster]);
+    const dir = sortDir === "asc" ? 1 : -1;
+    const byName = (a: AttendeeDetail, b: AttendeeDetail) =>
+      `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+
+    const list = [...roster];
+    if (sortBy === "name") {
+      list.sort((a, b) => dir * byName(a, b));
+    } else if (sortBy === "status") {
+      list.sort((a, b) => {
+        if (a.checkedIn === b.checkedIn) return byName(a, b);
+        return dir * (a.checkedIn ? -1 : 1);
+      });
+    } else {
+      list.sort((a, b) => {
+        if (!a.checkedInAt && !b.checkedInAt) return byName(a, b);
+        if (!a.checkedInAt) return 1;
+        if (!b.checkedInAt) return -1;
+        return dir * (new Date(a.checkedInAt).getTime() - new Date(b.checkedInAt).getTime());
+      });
+    }
+    return list;
+  }, [roster, sortBy, sortDir]);
 
   if (!metrics || !dayConfig) {
     return (
@@ -367,6 +396,41 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           <p className="text-sm text-foreground-muted mb-4">
             {sortedRoster.filter((a) => a.checkedIn).length} of {sortedRoster.length} checked in
           </p>
+
+          <div className="flex gap-2 mb-4">
+            {(
+              [
+                ["name", "Name"],
+                ["status", "Status"],
+                ["time", "Check-in time"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleSort(key)}
+                className={`flex-1 flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+                  sortBy === key
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-foreground-muted hover:text-foreground"
+                }`}
+              >
+                {label}
+                {sortBy === key && (
+                  <svg
+                    viewBox="0 0 24 24"
+                    className={`h-3.5 w-3.5 transition-transform ${sortDir === "desc" ? "rotate-180" : ""}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 15l6-6 6 6" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+
           <div className="max-h-96 overflow-y-auto rounded-lg border border-border divide-y divide-border">
             {sortedRoster.map((a) => (
               <div
