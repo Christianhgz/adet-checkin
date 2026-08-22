@@ -329,12 +329,16 @@ export default function CheckInPage() {
                   {selected.firstName} {selected.lastName} is already checked in
                 </p>
                 <div className="text-left space-y-1.5">
-                  {dayConfig.timeSlots.map((slot) => (
-                    <p key={slot} className="text-sm text-foreground-muted">
-                      <span className="font-medium text-foreground">{slot}:</span>{" "}
-                      {selected.slots[slot] ?? "—"}
-                    </p>
-                  ))}
+                  {dayConfig.timeSlots.map((slot) => {
+                    const event = selected.slots[slot];
+                    const location = event ? dayConfig.eventInfo[event]?.location : undefined;
+                    return (
+                      <p key={slot} className="text-sm text-foreground-muted">
+                        <span className="font-medium text-foreground">{slot}:</span>{" "}
+                        {event ? `${event}${location ? ` — ${location}` : ""}` : "—"}
+                      </p>
+                    );
+                  })}
                 </div>
                 {selected.checkedInAt && (
                   <p className="text-sm text-foreground-muted">
@@ -479,12 +483,16 @@ export default function CheckInPage() {
                   </p>
                 </div>
                 <div className="text-left space-y-1.5">
-                  {dayConfig.timeSlots.map((slot) => (
-                    <p key={slot} className="text-sm text-foreground-muted">
-                      <span className="font-medium text-foreground">{slot}:</span>{" "}
-                      {result.selections[slot] ?? "—"}
-                    </p>
-                  ))}
+                  {dayConfig.timeSlots.map((slot) => {
+                    const event = result.selections[slot];
+                    const location = event ? dayConfig.eventInfo[event]?.location : undefined;
+                    return (
+                      <p key={slot} className="text-sm text-foreground-muted">
+                        <span className="font-medium text-foreground">{slot}:</span>{" "}
+                        {event ? `${event}${location ? ` — ${location}` : ""}` : "—"}
+                      </p>
+                    );
+                  })}
                 </div>
                 <p className="text-xs text-foreground-muted">Click the × above to close</p>
               </div>
