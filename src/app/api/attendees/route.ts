@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveDay, getRoster } from "@/lib/sheets";
+import { apiErrorResponse } from "@/lib/api-error";
 
 export async function GET() {
   try {
@@ -17,10 +18,6 @@ export async function GET() {
       })),
     });
   } catch (err) {
-    // TEMP debug — remove once load-test diagnosis is complete.
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined },
-      { status: 500 },
-    );
+    return apiErrorResponse(err);
   }
 }

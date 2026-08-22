@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { computeAvailability, getActiveDay, getRoster } from "@/lib/sheets";
+import { apiErrorResponse } from "@/lib/api-error";
 
 export async function GET() {
-  const day = await getActiveDay();
-  const roster = await getRoster(day);
-  return NextResponse.json({ availability: computeAvailability(roster, day) });
+  try {
+    const day = await getActiveDay();
+    const roster = await getRoster(day);
+    return NextResponse.json({ availability: computeAvailability(roster, day) });
+  } catch (err) {
+    return apiErrorResponse(err);
+  }
 }

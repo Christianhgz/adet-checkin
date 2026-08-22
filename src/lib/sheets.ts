@@ -1,7 +1,13 @@
 import { google, sheets_v4 } from "googleapis";
 import { CONFIG_SHEET_NAME, DAYS, DayConfig, DayId, USERS_SHEET_NAME } from "./days";
 
-const CACHE_TTL_MS = 10_000;
+// Cache TTLs are deliberately uneven: data that essentially never changes
+// (the user list) is cached far longer than data that changes constantly
+// (per-day check-in status), to cut Google Sheets API call volume under
+// heavy concurrent load without sacrificing correctness where it matters.
+const ACTIVE_DAY_CACHE_TTL_MS = 30_000;
+const USERS_CACHE_TTL_MS = 5 * 60_000;
+const ROSTER_CACHE_TTL_MS = 15_000;
 
 export type Attendee = {
   userId: string;
@@ -46,6 +52,29 @@ function getClient(): sheets_v4.Sheets {
   return client;
 }
 
+// Retries transient/rate-limit failures (429, 5xx) with exponential backoff
+// + jitter. Under a burst of concurrent check-ins this is what keeps
+// individual requests succeeding instead of failing outright when Google's
+// per-minute quota is momentarily exceeded.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const status =
+        (err as { code?: number; response?: { status?: number } })?.response?.status ??
+        (err as { code?: number })?.code;
+      const retryable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+      if (!retryable || i === attempts - 1) throw err;
+      const delay = 250 * 2 ** i + Math.random() * 250;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
+}
+
 // 0-based column index -> spreadsheet column letter (A, B, ... Z, AA, ...).
 function colLetter(index: number): string {
   let n = index;
@@ -79,24 +108,28 @@ export async function getActiveDay(): Promise<DayId> {
     return activeDayCache.value;
   }
   const sheets = getClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${CONFIG_SHEET_NAME}!A2:B2`,
-  });
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: `${CONFIG_SHEET_NAME}!A2:B2`,
+    }),
+  );
   const value = (res.data.values?.[0]?.[1] ?? "").trim().toLowerCase();
   const day: DayId = value === "sunday" ? "sunday" : "saturday";
-  activeDayCache = { value: day, expiresAt: Date.now() + CACHE_TTL_MS };
+  activeDayCache = { value: day, expiresAt: Date.now() + ACTIVE_DAY_CACHE_TTL_MS };
   return day;
 }
 
 export async function setActiveDay(day: DayId): Promise<void> {
   const sheets = getClient();
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${CONFIG_SHEET_NAME}!A2:B2`,
-    valueInputOption: "RAW",
-    requestBody: { values: [["active-day", day]] },
-  });
+  await withRetry(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: `${CONFIG_SHEET_NAME}!A2:B2`,
+      valueInputOption: "RAW",
+      requestBody: { values: [["active-day", day]] },
+    }),
+  );
   activeDayCache = null;
   rosterCache = null;
 }
@@ -107,16 +140,7 @@ type UserRecord = { firstName: string; lastName: string; email: string };
 
 let usersCache: { data: Map<string, UserRecord>; expiresAt: number } | null = null;
 
-async function getUsers(): Promise<Map<string, UserRecord>> {
-  if (usersCache && usersCache.expiresAt > Date.now()) {
-    return usersCache.data;
-  }
-  const sheets = getClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${USERS_SHEET_NAME}!A2:D1000`,
-  });
-  const rows = res.data.values ?? [];
+function parseUsers(rows: string[][]): Map<string, UserRecord> {
   const map = new Map<string, UserRecord>();
   for (const row of rows) {
     const [userId = "", firstName = "", lastName = "", email = ""] = row;
@@ -127,13 +151,30 @@ async function getUsers(): Promise<Map<string, UserRecord>> {
       email: email.trim(),
     });
   }
-  usersCache = { data: map, expiresAt: Date.now() + CACHE_TTL_MS };
+  return map;
+}
+
+async function getUsers(): Promise<Map<string, UserRecord>> {
+  if (usersCache && usersCache.expiresAt > Date.now()) {
+    return usersCache.data;
+  }
+  const sheets = getClient();
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: `${USERS_SHEET_NAME}!A2:D1000`,
+    }),
+  );
+  const map = parseUsers((res.data.values ?? []) as string[][]);
+  usersCache = { data: map, expiresAt: Date.now() + USERS_CACHE_TTL_MS };
   return map;
 }
 
 // -------------------- day roster (per-day check-in data, joined with users) --------------------
 
-function parseDayRow(row: string[], day: DayConfig): Omit<Attendee, "firstName" | "lastName" | "email"> {
+type ParsedDayRow = Omit<Attendee, "firstName" | "lastName" | "email">;
+
+function parseDayRow(row: string[], day: DayConfig): ParsedDayRow {
   const cols = dayColumns(day);
   const userId = (row[0] ?? "").trim();
   const eventCells = row.slice(cols.eventsStart, cols.eventsStart + day.events.length);
@@ -152,19 +193,8 @@ function parseDayRow(row: string[], day: DayConfig): Omit<Attendee, "firstName" 
   return { userId, events, totalEvents, checkedIn, checkedInAt, slots };
 }
 
-let rosterCache: { day: DayId; data: Attendee[]; expiresAt: number } | null = null;
-
-async function fetchDayRoster(day: DayConfig): Promise<Attendee[]> {
-  const sheets = getClient();
-  const cols = dayColumns(day);
-  const range = `${day.sheetName}!A2:${colLetter(cols.lastCol)}1000`;
-  const [dayRes, users] = await Promise.all([
-    sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range }),
-    getUsers(),
-  ]);
-  const rows = dayRes.data.values ?? [];
+function joinWithUsers(rows: ParsedDayRow[], users: Map<string, UserRecord>): Attendee[] {
   return rows
-    .map((row) => parseDayRow(row as string[], day))
     .filter((r) => r.userId)
     .map((r) => {
       const user = users.get(r.userId) ?? { firstName: "", lastName: "", email: "" };
@@ -173,16 +203,51 @@ async function fetchDayRoster(day: DayConfig): Promise<Attendee[]> {
     .filter((a) => a.firstName || a.lastName);
 }
 
+let rosterCache: { day: DayId; data: Attendee[]; expiresAt: number } | null = null;
+
+async function fetchDayRoster(day: DayConfig): Promise<Attendee[]> {
+  const sheets = getClient();
+  const cols = dayColumns(day);
+  const dayRange = `${day.sheetName}!A2:${colLetter(cols.lastCol)}1000`;
+  const usersRange = `${USERS_SHEET_NAME}!A2:D1000`;
+
+  // One batchGet instead of two separate requests: Google counts this as a
+  // single API call against the read-request quota regardless of how many
+  // ranges are included, which matters a lot once dozens of devices are
+  // hitting this concurrently.
+  const needUsers = !usersCache || usersCache.expiresAt <= Date.now();
+  const ranges = needUsers ? [dayRange, usersRange] : [dayRange];
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.batchGet({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      ranges,
+    }),
+  );
+
+  const dayRows = (res.data.valueRanges?.[0]?.values ?? []) as string[][];
+  if (needUsers) {
+    const usersRows = (res.data.valueRanges?.[1]?.values ?? []) as string[][];
+    usersCache = { data: parseUsers(usersRows), expiresAt: Date.now() + USERS_CACHE_TTL_MS };
+  }
+  const users = usersCache!.data;
+
+  const parsed = dayRows.map((row) => parseDayRow(row, day));
+  return joinWithUsers(parsed, users);
+}
+
 export async function getRoster(day: DayId): Promise<Attendee[]> {
   if (rosterCache && rosterCache.day === day && rosterCache.expiresAt > Date.now()) {
     return rosterCache.data;
   }
   const data = await fetchDayRoster(DAYS[day]);
-  rosterCache = { day, data, expiresAt: Date.now() + CACHE_TTL_MS };
+  rosterCache = { day, data, expiresAt: Date.now() + ROSTER_CACHE_TTL_MS };
   return data;
 }
 
-export function computeAvailability(roster: Attendee[], day: DayId): SlotAvailability[] {
+export function computeAvailability(
+  roster: Pick<Attendee, "checkedIn" | "slots">[],
+  day: DayId,
+): SlotAvailability[] {
   const dayConfig = DAYS[day];
   const availability: SlotAvailability[] = [];
   for (const slot of dayConfig.timeSlots) {
@@ -218,21 +283,25 @@ export async function checkInAttendee(
   const cols = dayColumns(dayConfig);
   const sheets = getClient();
 
-  // Fresh (uncached) read of the whole day tab: needed both to find this
-  // user's row + confirm they're not already checked in, and to get an
-  // accurate capacity count for every slot right before writing.
+  // Single fresh (uncached) read of the whole day tab: gives us this user's
+  // row (for the already-checked-in check) AND every other row (for an
+  // accurate capacity count) from one API call, right before writing, to
+  // minimize the race window without paying for a second read.
   const range = `${dayConfig.sheetName}!A2:${colLetter(cols.lastCol)}1000`;
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range,
-  });
-  const rows = res.data.values ?? [];
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range,
+    }),
+  );
+  const rows = (res.data.values ?? []) as string[][];
   const rowIndex = rows.findIndex((r) => (r[0] ?? "").trim() === userId);
   if (rowIndex === -1) {
     return { status: "not_found" };
   }
   const rowNumber = rowIndex + 2;
-  const parsed = parseDayRow(rows[rowIndex] as string[], dayConfig);
+  const allParsed = rows.map((r) => parseDayRow(r, dayConfig));
+  const parsed = allParsed[rowIndex];
 
   if (parsed.checkedIn) {
     return { status: "already", checkedInAt: parsed.checkedInAt ?? "", selections: parsed.slots };
@@ -253,8 +322,7 @@ export async function checkInAttendee(
     }
   }
 
-  const roster = await fetchDayRoster(dayConfig);
-  const availability = computeAvailability(roster, day);
+  const availability = computeAvailability(allParsed, day);
   for (const slot of dayConfig.timeSlots) {
     const event = selections[slot];
     const slotAvailability = availability.find((a) => a.slot === slot && a.event === event);
@@ -266,14 +334,16 @@ export async function checkInAttendee(
   const now = new Date().toISOString();
   const eventColumns = dayConfig.events.map((name) => (uniqueEvents.has(name) ? "YES" : "NO"));
   const slotColumns = dayConfig.timeSlots.map((slot) => selections[slot]);
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${dayConfig.sheetName}!${colLetter(1)}${rowNumber}:${colLetter(cols.lastCol)}${rowNumber}`,
-    valueInputOption: "RAW",
-    requestBody: {
-      values: [[...eventColumns, String(chosenEvents.length), "TRUE", now, ...slotColumns]],
-    },
-  });
+  await withRetry(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: `${dayConfig.sheetName}!${colLetter(1)}${rowNumber}:${colLetter(cols.lastCol)}${rowNumber}`,
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[...eventColumns, String(chosenEvents.length), "TRUE", now, ...slotColumns]],
+      },
+    }),
+  );
   rosterCache = null;
   return { status: "checked_in", checkedInAt: now, selections };
 }

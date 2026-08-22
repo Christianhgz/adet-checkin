@@ -114,26 +114,36 @@ export default function CheckInPage() {
   }
 
   async function handleConfirm() {
-    if (!selected) return;
+    if (!selected || submitting) return;
     setSubmitting(true);
     setError("");
-    const res = await fetch("/api/checkin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: selected.userId, selections }),
-    });
-    setSubmitting(false);
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong. Please try again.");
-      return;
+    try {
+      const res = await fetch("/api/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: selected.userId, selections }),
+      });
+      let data: { error?: string; alreadyCheckedIn?: boolean; checkedInAt?: string; selections?: Record<string, string> };
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        setError(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+      setResult({
+        alreadyCheckedIn: data.alreadyCheckedIn ?? false,
+        checkedInAt: data.checkedInAt ?? new Date().toISOString(),
+        selections: data.selections ?? {},
+      });
+      loadRoster();
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
     }
-    setResult({
-      alreadyCheckedIn: data.alreadyCheckedIn,
-      checkedInAt: data.checkedInAt,
-      selections: data.selections,
-    });
-    loadRoster();
   }
 
   function closeModal() {
@@ -143,6 +153,7 @@ export default function CheckInPage() {
     setExpandedEvent(null);
     setResult(null);
     setError("");
+    setSubmitting(false);
   }
 
   const allSlotsFilled = dayConfig?.timeSlots.every((slot) => selections[slot]) ?? false;

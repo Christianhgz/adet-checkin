@@ -47,13 +47,14 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
 
-  function loadAll() {
-    return Promise.all([
-      fetch("/api/day-config"),
-      fetch("/api/metrics"),
-      fetch("/api/availability"),
-      fetch("/api/dashboard/attendees"),
-    ]).then(async ([dayRes, metricsRes, availabilityRes, attendeesRes]) => {
+  async function loadAll() {
+    try {
+      const [dayRes, metricsRes, availabilityRes, attendeesRes] = await Promise.all([
+        fetch("/api/day-config"),
+        fetch("/api/metrics"),
+        fetch("/api/availability"),
+        fetch("/api/dashboard/attendees"),
+      ]);
       if (dayRes.ok) {
         const data = await dayRes.json();
         setDayConfig(data);
@@ -68,7 +69,10 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
         const data = await attendeesRes.json();
         setRoster(data.attendees);
       }
-    });
+    } catch {
+      // Network hiccup or a transient server error — the periodic refresh
+      // (or the next manual switch) will retry; nothing to surface here.
+    }
   }
 
   useEffect(() => {
@@ -86,18 +90,21 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   }, []);
 
   async function handleSwitchDay() {
-    if (!dayConfig) return;
+    if (!dayConfig || switching) return;
     const nextDay = dayConfig.day === "saturday" ? "sunday" : "saturday";
     setSwitching(true);
-    await fetch("/api/dashboard/active-day", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ day: nextDay }),
-    });
-    setSelectedUserId(null);
-    setQuery("");
-    await loadAll();
-    setSwitching(false);
+    try {
+      await fetch("/api/dashboard/active-day", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ day: nextDay }),
+      });
+      setSelectedUserId(null);
+      setQuery("");
+      await loadAll();
+    } finally {
+      setSwitching(false);
+    }
   }
 
   const matches = useMemo(() => {
