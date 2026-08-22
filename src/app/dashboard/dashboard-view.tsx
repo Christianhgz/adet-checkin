@@ -46,6 +46,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   const [query, setQuery] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [expandedListEvent, setExpandedListEvent] = useState<string | null>(null);
 
   async function loadAll() {
     try {
@@ -101,6 +102,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
       });
       setSelectedUserId(null);
       setQuery("");
+      setExpandedListEvent(null);
       await loadAll();
     } finally {
       setSwitching(false);
@@ -212,19 +214,58 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           <div className="divide-y divide-border">
             {dayConfig.events.map((event) => {
               const info = availability?.find((a) => a.slot === activeSlot && a.event === event);
+              const expanded = expandedListEvent === event;
+              const attendeesHere = (roster ?? [])
+                .filter((a) => a.checkedIn && activeSlot && a.slots[activeSlot] === event)
+                .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
               return (
-                <div key={event} className="flex items-center justify-between py-3">
-                  <div>
-                    <p className="font-medium text-foreground">{event}</p>
-                    {info && <p className="text-xs text-foreground-muted">{info.location}</p>}
-                  </div>
-                  <span
-                    className={`text-lg font-heading font-semibold ${
-                      info?.full ? "text-red-600" : "text-olive-darker"
-                    }`}
+                <div key={event} className="py-3">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedListEvent(expanded ? null : event)}
+                    className="w-full flex items-center justify-between gap-3 text-left"
                   >
-                    {info ? `${info.taken}/${info.capacity}` : "—"}
-                  </span>
+                    <div>
+                      <p className="font-medium text-foreground">{event}</p>
+                      {info && <p className="text-xs text-foreground-muted">{info.location}</p>}
+                    </div>
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-lg font-heading font-semibold ${
+                          info?.full ? "text-red-600" : "text-olive-darker"
+                        }`}
+                      >
+                        {info ? `${info.taken}/${info.capacity}` : "—"}
+                      </span>
+                      <svg
+                        viewBox="0 0 24 24"
+                        className={`h-4 w-4 text-foreground-muted transition-transform ${
+                          expanded ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                      </svg>
+                    </span>
+                  </button>
+
+                  {expanded && (
+                    <div className="mt-3 rounded-lg border border-border divide-y divide-border overflow-hidden">
+                      {attendeesHere.length === 0 ? (
+                        <p className="text-sm text-foreground-muted text-center py-4 px-4">
+                          No one checked in for this session yet.
+                        </p>
+                      ) : (
+                        attendeesHere.map((a) => (
+                          <div key={a.userId} className="px-4 py-2 text-sm text-foreground">
+                            {a.firstName} {a.lastName}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
