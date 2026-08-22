@@ -122,6 +122,13 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
     [roster, selectedUserId],
   );
 
+  const sortedRoster = useMemo(() => {
+    if (!roster) return [];
+    return [...roster].sort((a, b) =>
+      `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
+    );
+  }, [roster]);
+
   if (!metrics || !dayConfig) {
     return (
       <div className="min-h-screen flex items-center justify-center text-surface">
@@ -353,6 +360,34 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
               </div>
             </div>
           )}
+        </div>
+
+        <div className="bg-surface rounded-3xl shadow-sm border border-border p-6">
+          <h2 className="text-lg mb-1">All attendees</h2>
+          <p className="text-sm text-foreground-muted mb-4">
+            {sortedRoster.filter((a) => a.checkedIn).length} of {sortedRoster.length} checked in
+          </p>
+          <div className="max-h-96 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+            {sortedRoster.map((a) => (
+              <div key={a.userId} className="flex items-center justify-between px-4 py-2.5">
+                <span className="text-sm text-foreground">
+                  {a.firstName} {a.lastName}
+                </span>
+                {a.checkedIn ? (
+                  <span className="text-xs text-olive font-medium">
+                    Checked in
+                    {a.checkedInAt &&
+                      ` · ${new Date(a.checkedInAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`}
+                  </span>
+                ) : (
+                  <span className="text-xs text-foreground-muted">Not checked in</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
