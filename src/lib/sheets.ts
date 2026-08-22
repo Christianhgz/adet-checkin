@@ -2,7 +2,9 @@ import { google, sheets_v4 } from "googleapis";
 import { EVENTS, EVENT_INFO, EventName, TIME_SLOTS, TimeSlot } from "./events";
 
 const SHEET_NAME = "Sheet1";
-const DATA_RANGE = `${SHEET_NAME}!A2:M1000`;
+// Column A now holds user-id (added after this range was first written), so
+// data starts at B to keep the same relative field order rowToAttendee expects.
+const DATA_RANGE = `${SHEET_NAME}!B2:N1000`;
 const CACHE_TTL_MS = 10_000;
 
 export type Attendee = {
@@ -188,7 +190,7 @@ export async function checkInAttendee(
   const slotColumns = TIME_SLOTS.map((slot) => selections[slot] as EventName);
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!D${row}:M${row}`,
+    range: `${SHEET_NAME}!E${row}:N${row}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [[...eventColumns, String(chosenEvents.length), "TRUE", now, ...slotColumns]],

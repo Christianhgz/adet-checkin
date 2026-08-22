@@ -27,6 +27,7 @@ export default function CheckInPage() {
   const [rosterError, setRosterError] = useState(false);
   const [selected, setSelected] = useState<Match | null>(null);
   const [selections, setSelections] = useState<Partial<Record<TimeSlot, EventName>>>({});
+  const [expandedEvent, setExpandedEvent] = useState<EventName | null>(null);
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -75,16 +76,29 @@ export default function CheckInPage() {
     return taken >= EVENT_INFO[event].capacity;
   }
 
-  function pickEvent(slot: TimeSlot, event: EventName) {
+  function slotForEvent(event: EventName): TimeSlot | undefined {
+    return TIME_SLOTS.find((slot) => selections[slot] === event);
+  }
+
+  function shortSlotLabel(slot: TimeSlot): string {
+    return slot.split(" – ")[0] + " PM";
+  }
+
+  function pickSlot(event: EventName, slot: TimeSlot) {
     setSelections((prev) => {
       const next = { ...prev };
-      if (next[slot] === event) {
-        delete next[slot];
-      } else {
+      for (const s of TIME_SLOTS) {
+        if (next[s] === event) delete next[s];
+      }
+      if (prev[slot] !== event) {
         next[slot] = event;
       }
       return next;
     });
+  }
+
+  function toggleExpand(event: EventName) {
+    setExpandedEvent((prev) => (prev === event ? null : event));
   }
 
   async function handleConfirm() {
@@ -114,6 +128,7 @@ export default function CheckInPage() {
     setQuery("");
     setSelected(null);
     setSelections({});
+    setExpandedEvent(null);
     setResult(null);
     setError("");
   }
@@ -281,55 +296,87 @@ export default function CheckInPage() {
                   </p>
                 </div>
 
-                <div className="space-y-4">
-                  {TIME_SLOTS.map((slot) => (
-                    <div key={slot}>
-                      <p className="text-sm font-medium text-foreground mb-2">{slot}</p>
-                      <div className="space-y-2">
-                        {EVENTS.map((event) => {
-                          const checked = selections[slot] === event;
-                          const usedElsewhere = TIME_SLOTS.some(
-                            (s) => s !== slot && selections[s] === event,
-                          );
-                          const full = isFull(slot, event);
-                          const disabled = !checked && (usedElsewhere || full);
-                          const info = EVENT_INFO[event];
-                          const taken = takenCounts.get(`${slot}|${event}`) ?? 0;
-                          return (
-                            <button
-                              key={event}
-                              type="button"
-                              onClick={() => pickEvent(slot, event)}
-                              disabled={disabled}
-                              aria-pressed={checked}
-                              className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
-                                checked
-                                  ? "border-olive bg-cream-dark"
-                                  : disabled
-                                    ? "border-border opacity-50 cursor-not-allowed"
-                                    : "border-border hover:border-olive"
+                <div>
+                  <p className="text-sm font-medium text-foreground mb-3">
+                    Pick 3 of the 4 sessions, each in a different time slot
+                  </p>
+                  <div className="space-y-3">
+                    {EVENTS.map((event) => {
+                      const info = EVENT_INFO[event];
+                      const selectedSlot = slotForEvent(event);
+                      const eventChosen = selectedSlot !== undefined;
+                      const expanded = expandedEvent === event || eventChosen;
+                      return (
+                        <div
+                          key={event}
+                          className={`rounded-lg border transition-colors ${
+                            eventChosen ? "border-olive bg-cream-dark" : "border-border"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(event)}
+                            className="w-full flex items-center gap-3 p-3 text-left"
+                          >
+                            <span
+                              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                                eventChosen ? "bg-olive border-olive" : "border-border"
                               }`}
                             >
-                              <span
-                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                                  checked ? "bg-olive border-olive" : "border-border"
-                                }`}
-                              >
-                                {checked && <span className="h-2 w-2 rounded-full bg-cream" />}
+                              {eventChosen && (
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  className="h-3.5 w-3.5 text-cream"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth={3}
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </span>
+                            <span className="flex-1">
+                              <span className="block font-medium text-foreground">{event}</span>
+                              <span className="block text-xs text-foreground-muted">
+                                {info.location}
+                                {eventChosen && selectedSlot ? ` · ${shortSlotLabel(selectedSlot)}` : ""}
                               </span>
-                              <span className="flex-1">
-                                <span className="block font-medium text-foreground">{event}</span>
-                                <span className="block text-xs text-foreground-muted">
-                                  {info.location}
-                                  {full && !checked ? " · Full" : ` · ${taken}/${info.capacity}`}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                            </span>
+                          </button>
+
+                          {expanded && (
+                            <div className="grid grid-cols-3 gap-2 px-3 pb-3">
+                              {TIME_SLOTS.map((slot) => {
+                                const checked = selections[slot] === event;
+                                const takenByOtherEvent =
+                                  selections[slot] !== undefined && selections[slot] !== event;
+                                const full = isFull(slot, event);
+                                const disabled = !checked && (takenByOtherEvent || full);
+                                return (
+                                  <button
+                                    key={slot}
+                                    type="button"
+                                    onClick={() => pickSlot(event, slot)}
+                                    disabled={disabled}
+                                    aria-pressed={checked}
+                                    className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                                      checked
+                                        ? "border-olive bg-olive text-primary-foreground"
+                                        : disabled
+                                          ? "border-border opacity-50 cursor-not-allowed text-foreground-muted"
+                                          : "border-border text-foreground hover:border-olive"
+                                    }`}
+                                  >
+                                    {full && !checked ? "Full" : shortSlotLabel(slot)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
