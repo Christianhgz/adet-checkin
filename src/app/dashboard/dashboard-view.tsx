@@ -369,7 +369,12 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           </p>
           <div className="max-h-96 overflow-y-auto rounded-lg border border-border divide-y divide-border">
             {sortedRoster.map((a) => (
-              <div key={a.userId} className="flex items-center justify-between px-4 py-2.5">
+              <div
+                key={a.userId}
+                className={`flex items-center justify-between px-4 py-2.5 ${
+                  a.checkedIn ? "bg-cream-dark" : ""
+                }`}
+              >
                 <span className="text-sm text-foreground">
                   {a.firstName} {a.lastName}
                 </span>
