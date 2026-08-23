@@ -93,17 +93,22 @@ export const DAYS: Record<DayId, DayConfig> = {
       {
         slot: "11:00 AM – 12:00 PM",
         required: true,
+        // Raised from the rooms' physical 18/20 capacities to 30/30 — with
+        // only 2 options this session, the physical caps capped attendance
+        // at 38 total, short of the 60+ expected. Sunday-only, this session
+        // and the next; session 1 and all of Saturday keep their real
+        // room capacities.
         options: [
-          { name: "Proclaim", location: "Studio", capacity: 18 },
-          { name: "Video Editing with CapCut", location: "Conference Room", capacity: 20 },
+          { name: "Proclaim", location: "Studio", capacity: 30 },
+          { name: "Video Editing with CapCut", location: "Conference Room", capacity: 30 },
         ],
       },
       {
         slot: "1:00 – 2:00 PM",
         required: false,
         options: [
-          { name: "Masterclass: Graphic Design in Canva", location: "Conference Room", capacity: 20 },
-          { name: "Masterclass: How to Improve Your Church Website", location: "Studio", capacity: 18 },
+          { name: "Masterclass: Graphic Design in Canva", location: "Conference Room", capacity: 30 },
+          { name: "Masterclass: How to Improve Your Church Website", location: "Studio", capacity: 30 },
         ],
       },
     ],
