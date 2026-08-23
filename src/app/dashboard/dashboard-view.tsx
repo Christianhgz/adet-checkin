@@ -56,6 +56,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   const [query, setQuery] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [pendingDay, setPendingDay] = useState<"saturday" | "sunday" | null>(null);
   const [expandedListEvent, setExpandedListEvent] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"name" | "status" | "time">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -72,7 +73,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
   async function loadAll() {
     try {
       const [dayRes, metricsRes, availabilityRes, attendeesRes] = await Promise.all([
-        fetch("/api/day-config"),
+        fetch("/api/dashboard/day-config"),
         fetch("/api/metrics"),
         fetch("/api/availability"),
         fetch("/api/dashboard/attendees"),
@@ -80,6 +81,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
       if (dayRes.ok) {
         const data = await dayRes.json();
         setDayConfig(data);
+        setPendingDay(null);
         const slots = (data.sessions as Session[]).map((s) => s.slot);
         setActiveSlot((prev) => (prev && slots.includes(prev) ? prev : slots[0]));
       }
@@ -112,15 +114,15 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
     };
   }, []);
 
-  async function handleSwitchDay() {
-    if (!dayConfig || switching) return;
-    const nextDay = dayConfig.day === "saturday" ? "sunday" : "saturday";
+  async function handleSwitchDay(targetDay: "saturday" | "sunday") {
+    if (!dayConfig || switching || targetDay === dayConfig.day) return;
+    setPendingDay(targetDay); // instant pill flip, before the round trip resolves
     setSwitching(true);
     try {
       await fetch("/api/dashboard/active-day", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ day: nextDay }),
+        body: JSON.stringify({ day: targetDay }),
       });
       setSelectedUserId(null);
       setQuery("");
@@ -177,7 +179,7 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
     );
   }
 
-  const otherDayLabel = dayConfig.day === "saturday" ? "Sunday" : "Saturday";
+  const displayedDay = pendingDay ?? dayConfig.day;
 
   return (
     <div className="min-h-screen px-4 py-12">
@@ -212,16 +214,28 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
         </div>
 
         <div className="bg-surface rounded-3xl shadow-sm border border-border p-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-foreground-muted">
-            Currently showing: <span className="font-semibold text-foreground">{dayConfig.label}</span>
-          </p>
-          <button
-            onClick={handleSwitchDay}
-            disabled={switching}
-            className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-          >
-            {switching ? "Switching…" : `Switch to ${otherDayLabel}`}
-          </button>
+          <p className="text-sm text-foreground-muted">Currently showing</p>
+          <div className="relative inline-flex items-center rounded-full bg-background border border-border p-1">
+            <span
+              className="absolute top-1 bottom-1 left-1 w-24 rounded-full bg-primary transition-transform duration-200 ease-out"
+              style={{ transform: displayedDay === "sunday" ? "translateX(96px)" : "translateX(0px)" }}
+            />
+            {(["saturday", "sunday"] as const).map((day) => (
+              <button
+                key={day}
+                type="button"
+                onClick={() => handleSwitchDay(day)}
+                disabled={switching}
+                className={`relative z-10 w-24 rounded-full py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                  displayedDay === day
+                    ? "text-primary-foreground"
+                    : "text-foreground-muted hover:text-foreground"
+                }`}
+              >
+                {day === "saturday" ? "Saturday" : "Sunday"}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
