@@ -1,5 +1,9 @@
 export type DayId = "saturday" | "sunday";
 
+export function isDayId(value: unknown): value is DayId {
+  return value === "saturday" || value === "sunday";
+}
+
 export type SessionOption = {
   name: string;
   location: string;

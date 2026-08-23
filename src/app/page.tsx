@@ -51,25 +51,42 @@ export default function CheckInPage() {
   const [error, setError] = useState("");
   const [statusLoading, setStatusLoading] = useState(false);
 
-  function loadRoster() {
+  // Resolve the active day first, then fetch attendees for that exact day —
+  // fetching both in parallel could let a switch land in the gap and pair a
+  // stale roster with a fresh day (or vice versa), which is how the app
+  // ended up showing the wrong day's seminars after a switch.
+  async function loadRoster() {
     setRosterError(false);
-    return Promise.all([fetch("/api/day-config"), fetch("/api/attendees")])
-      .then(async ([dayRes, attendeesRes]) => {
-        if (!dayRes.ok || !attendeesRes.ok) throw new Error("Failed to load");
-        const dayData = await dayRes.json();
-        const attendeesData = await attendeesRes.json();
-        setDayConfig(dayData);
-        setRoster(attendeesData.attendees ?? []);
-      })
-      .catch(() => {
-        setRosterError(true);
-        setRoster((prev) => prev ?? []);
-      });
+    try {
+      const dayRes = await fetch("/api/day-config");
+      if (!dayRes.ok) throw new Error("Failed to load");
+      const dayData = await dayRes.json();
+      setDayConfig(dayData);
+
+      const attendeesRes = await fetch(`/api/attendees?day=${dayData.day}`);
+      if (!attendeesRes.ok) throw new Error("Failed to load");
+      const attendeesData = await attendeesRes.json();
+      setRoster(attendeesData.attendees ?? []);
+    } catch {
+      setRosterError(true);
+      setRoster((prev) => prev ?? []);
+    }
   }
 
   useEffect(() => {
     loadRoster();
   }, []);
+
+  // A device left open at the check-in table never re-fetches on its own
+  // otherwise, so it would keep showing whichever day was active when the
+  // page first loaded — even after an admin switches days. Poll in the
+  // background, but never while someone's actively picking sessions.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!selected) loadRoster();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [selected]);
 
   async function selectAttendee(match: Match) {
     setSelected(match);
@@ -165,9 +182,15 @@ export default function CheckInPage() {
       const res = await fetch("/api/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: selected.userId, selections }),
+        body: JSON.stringify({ userId: selected.userId, day: dayConfig?.day, selections }),
       });
-      let data: { error?: string; alreadyCheckedIn?: boolean; checkedInAt?: string; selections?: Record<string, string> };
+      let data: {
+        error?: string;
+        alreadyCheckedIn?: boolean;
+        checkedInAt?: string;
+        selections?: Record<string, string>;
+        dayChanged?: boolean;
+      };
       try {
         data = await res.json();
       } catch {
@@ -175,6 +198,10 @@ export default function CheckInPage() {
       }
       if (!res.ok) {
         setError(data.error ?? "Something went wrong. Please try again.");
+        // The active day changed while this modal was open — refresh the
+        // roster/session list in the background so a retry uses the new day
+        // instead of failing the same way again.
+        if (data.dayChanged) loadRoster();
         return;
       }
       setResult({

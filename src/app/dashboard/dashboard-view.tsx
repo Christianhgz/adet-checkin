@@ -70,21 +70,28 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
     }
   }
 
+  // Resolve the active day first, then fetch metrics/availability/attendees
+  // for that exact day. Fetching all four in parallel let a switch land in
+  // the gap between requests, so one panel could render the new day while
+  // another still showed the old one — the "some graphics change, some
+  // don't" symptom. Resolving once and passing it explicitly to the rest
+  // guarantees every panel in a given refresh agrees on the same day.
   async function loadAll() {
     try {
-      const [dayRes, metricsRes, availabilityRes, attendeesRes] = await Promise.all([
-        fetch("/api/dashboard/day-config"),
-        fetch("/api/metrics"),
-        fetch("/api/availability"),
-        fetch("/api/dashboard/attendees"),
+      const dayRes = await fetch("/api/dashboard/day-config");
+      if (!dayRes.ok) return;
+      const dayData = await dayRes.json();
+      setDayConfig(dayData);
+      setPendingDay(null);
+      const slots = (dayData.sessions as Session[]).map((s) => s.slot);
+      setActiveSlot((prev) => (prev && slots.includes(prev) ? prev : slots[0]));
+
+      const day = dayData.day;
+      const [metricsRes, availabilityRes, attendeesRes] = await Promise.all([
+        fetch(`/api/metrics?day=${day}`),
+        fetch(`/api/availability?day=${day}`),
+        fetch(`/api/dashboard/attendees?day=${day}`),
       ]);
-      if (dayRes.ok) {
-        const data = await dayRes.json();
-        setDayConfig(data);
-        setPendingDay(null);
-        const slots = (data.sessions as Session[]).map((s) => s.slot);
-        setActiveSlot((prev) => (prev && slots.includes(prev) ? prev : slots[0]));
-      }
       if (metricsRes.ok) setMetrics(await metricsRes.json());
       if (availabilityRes.ok) {
         const data = await availabilityRes.json();

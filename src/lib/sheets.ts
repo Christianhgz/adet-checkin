@@ -5,7 +5,6 @@ import { allSeminars, CONFIG_SHEET_NAME, DAYS, DayConfig, DayId, USERS_SHEET_NAM
 // (the user list) is cached far longer than data that changes constantly
 // (per-day check-in status), to cut Google Sheets API call volume under
 // heavy concurrent load without sacrificing correctness where it matters.
-const ACTIVE_DAY_CACHE_TTL_MS = 30_000;
 const USERS_CACHE_TTL_MS = 5 * 60_000;
 const ROSTER_CACHE_TTL_MS = 15_000;
 
@@ -102,12 +101,17 @@ function dayColumns(day: DayConfig) {
 
 // -------------------- active day config --------------------
 
-let activeDayCache: { value: DayId; expiresAt: number } | null = null;
-
+// Deliberately uncached: this is a tiny, cheap read (a single cell), and
+// caching it in-memory was the root cause of the switch feeling unreliable
+// — Vercel runs multiple separate serverless instances concurrently, each
+// with its own copy of any module-level cache, so a switch cleared only the
+// one instance that handled it while every other warm instance kept
+// answering with the old day for up to the cache's TTL. The public-facing
+// routes that need protecting from high concurrent volume already get that
+// protection from Vercel's edge cache (see the `revalidate` export on
+// /api/day-config and /api/attendees), which sits in front of this function
+// and isn't affected by removing this second, inconsistent layer.
 export async function getActiveDay(): Promise<DayId> {
-  if (activeDayCache && activeDayCache.expiresAt > Date.now()) {
-    return activeDayCache.value;
-  }
   const sheets = getClient();
   const res = await withRetry(() =>
     sheets.spreadsheets.values.get({
@@ -116,9 +120,7 @@ export async function getActiveDay(): Promise<DayId> {
     }),
   );
   const value = (res.data.values?.[0]?.[1] ?? "").trim().toLowerCase();
-  const day: DayId = value === "sunday" ? "sunday" : "saturday";
-  activeDayCache = { value: day, expiresAt: Date.now() + ACTIVE_DAY_CACHE_TTL_MS };
-  return day;
+  return value === "sunday" ? "sunday" : "saturday";
 }
 
 export async function setActiveDay(day: DayId): Promise<void> {
@@ -131,7 +133,6 @@ export async function setActiveDay(day: DayId): Promise<void> {
       requestBody: { values: [["active-day", day]] },
     }),
   );
-  activeDayCache = null;
   rosterCache = null;
 }
 
@@ -239,6 +240,9 @@ async function fetchDayRoster(day: DayConfig): Promise<Attendee[]> {
   return joinWithUsers(parsed, users);
 }
 
+// Cached (up to 15s stale, per-instance) — used only by the public,
+// high-concurrency check-in path where that's a deliberate, worthwhile
+// tradeoff. Admin routes must not use this; see getRosterFresh below.
 export async function getRoster(day: DayId): Promise<Attendee[]> {
   if (rosterCache && rosterCache.day === day && rosterCache.expiresAt > Date.now()) {
     return rosterCache.data;
@@ -246,6 +250,15 @@ export async function getRoster(day: DayId): Promise<Attendee[]> {
   const data = await fetchDayRoster(DAYS[day]);
   rosterCache = { day, data, expiresAt: Date.now() + ROSTER_CACHE_TTL_MS };
   return data;
+}
+
+// Always-fresh roster read, bypassing the in-memory cache entirely. There's
+// only ever one (or a couple of) admin dashboard sessions polling this, so
+// the extra Sheets API calls are negligible — and correctness (never
+// showing stale counts right after a day switch) matters far more here
+// than for the public path.
+export async function getRosterFresh(day: DayId): Promise<Attendee[]> {
+  return fetchDayRoster(DAYS[day]);
 }
 
 // Always-fresh, single-attendee lookup that bypasses both the in-memory

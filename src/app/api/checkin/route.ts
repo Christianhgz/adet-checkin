@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkInAttendee, getActiveDay } from "@/lib/sheets";
-import { DAYS } from "@/lib/days";
+import { DAYS, isDayId } from "@/lib/days";
 import { apiErrorResponse } from "@/lib/api-error";
 
 export async function POST(req: NextRequest) {
@@ -19,8 +19,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid attendee" }, { status: 400 });
   }
 
+  const requestedDay = (body as { day?: unknown })?.day;
+
   try {
     const day = await getActiveDay();
+
+    // The device resolved `day` when the check-in modal opened. If an admin
+    // switched the active day while that modal was open, submitting against
+    // the stale day would silently validate selections against the wrong
+    // seminar list. Catch that here with a clear, specific error instead of
+    // a confusing generic validation failure downstream.
+    if (isDayId(requestedDay) && requestedDay !== day) {
+      return NextResponse.json(
+        {
+          error: `The event day changed to ${DAYS[day].label} while this was open — please refresh and try again.`,
+          dayChanged: true,
+          day,
+        },
+        { status: 409 },
+      );
+    }
+
     const dayConfig = DAYS[day];
 
     const rawSelections = (body as { selections?: unknown })?.selections;

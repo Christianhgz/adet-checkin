@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Attendee not found" }, { status: 404 });
     }
     return NextResponse.json({
+      day,
       userId: attendee.userId,
       firstName: attendee.firstName,
       lastName: attendee.lastName,

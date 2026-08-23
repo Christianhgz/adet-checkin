@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { DASHBOARD_COOKIE, dashboardToken } from "@/lib/auth";
-import { getActiveDay, getRoster } from "@/lib/sheets";
+import { getActiveDay, getRosterFresh } from "@/lib/sheets";
 import { apiErrorResponse } from "@/lib/api-error";
+import { isDayId } from "@/lib/days";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const store = await cookies();
   const authed = store.get(DASHBOARD_COOKIE)?.value === dashboardToken();
   if (!authed) {
@@ -12,8 +13,9 @@ export async function GET() {
   }
 
   try {
-    const day = await getActiveDay();
-    const roster = await getRoster(day);
+    const requested = req.nextUrl.searchParams.get("day");
+    const day = isDayId(requested) ? requested : await getActiveDay();
+    const roster = await getRosterFresh(day);
     return NextResponse.json({
       attendees: roster.map((a) => ({
         userId: a.userId,
