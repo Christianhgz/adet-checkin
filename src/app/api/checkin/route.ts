@@ -26,10 +26,10 @@ export async function POST(req: NextRequest) {
     const rawSelections = (body as { selections?: unknown })?.selections;
     const selections: Record<string, string> = {};
     if (rawSelections && typeof rawSelections === "object") {
-      for (const slot of dayConfig.timeSlots) {
-        const value = (rawSelections as Record<string, unknown>)[slot];
-        if (typeof value === "string" && dayConfig.events.includes(value)) {
-          selections[slot] = value;
+      for (const session of dayConfig.sessions) {
+        const value = (rawSelections as Record<string, unknown>)[session.slot];
+        if (typeof value === "string" && session.options.some((o) => o.name === value)) {
+          selections[session.slot] = value;
         }
       }
     }

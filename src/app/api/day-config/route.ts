@@ -12,9 +12,7 @@ export async function GET() {
     return NextResponse.json({
       day: config.id,
       label: config.label,
-      events: config.events,
-      timeSlots: config.timeSlots,
-      eventInfo: config.eventInfo,
+      sessions: config.sessions,
     });
   } catch (err) {
     return apiErrorResponse(err);

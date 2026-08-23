@@ -3,12 +3,22 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+type SessionOption = {
+  name: string;
+  location: string;
+  capacity: number;
+};
+
+type Session = {
+  slot: string;
+  required: boolean;
+  options: SessionOption[];
+};
+
 type DayConfig = {
   day: string;
   label: string;
-  events: string[];
-  timeSlots: string[];
-  eventInfo: Record<string, { location: string; capacity: number }>;
+  sessions: Session[];
 };
 
 type Metrics = {
@@ -70,7 +80,8 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
       if (dayRes.ok) {
         const data = await dayRes.json();
         setDayConfig(data);
-        setActiveSlot((prev) => (prev && data.timeSlots.includes(prev) ? prev : data.timeSlots[0]));
+        const slots = (data.sessions as Session[]).map((s) => s.slot);
+        setActiveSlot((prev) => (prev && slots.includes(prev) ? prev : slots[0]));
       }
       if (metricsRes.ok) setMetrics(await metricsRes.json());
       if (availabilityRes.ok) {
@@ -231,24 +242,28 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
           </p>
 
           <div className="flex gap-2 mb-4">
-            {dayConfig.timeSlots.map((slot) => (
+            {dayConfig.sessions.map((session) => (
               <button
-                key={slot}
+                key={session.slot}
                 type="button"
-                onClick={() => setActiveSlot(slot)}
+                onClick={() => setActiveSlot(session.slot)}
                 className={`flex-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
-                  activeSlot === slot
+                  activeSlot === session.slot
                     ? "bg-primary text-primary-foreground"
                     : "bg-background text-foreground-muted hover:text-foreground"
                 }`}
               >
-                {slot}
+                {session.slot}
+                {!session.required && (
+                  <span className="block text-[10px] font-normal opacity-80">optional</span>
+                )}
               </button>
             ))}
           </div>
 
           <div className="divide-y divide-border">
-            {dayConfig.events.map((event) => {
+            {(dayConfig.sessions.find((s) => s.slot === activeSlot)?.options ?? []).map((opt) => {
+              const event = opt.name;
               const info = availability?.find((a) => a.slot === activeSlot && a.event === event);
               const expanded = expandedListEvent === event;
               const attendeesHere = (roster ?? [])
@@ -380,10 +395,11 @@ export default function DashboardView({ sheetUrl }: { sheetUrl: string }) {
               </p>
 
               <div className="space-y-1.5">
-                {dayConfig.timeSlots.map((slot) => (
-                  <p key={slot} className="text-sm text-foreground-muted">
-                    <span className="font-medium text-foreground">{slot}:</span>{" "}
-                    {selectedAttendee.slots[slot] ?? "—"}
+                {dayConfig.sessions.map((session) => (
+                  <p key={session.slot} className="text-sm text-foreground-muted">
+                    <span className="font-medium text-foreground">{session.slot}:</span>{" "}
+                    {selectedAttendee.slots[session.slot] ??
+                      (session.required ? "—" : "Skipped")}
                   </p>
                 ))}
               </div>

@@ -4,12 +4,22 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+type SessionOption = {
+  name: string;
+  location: string;
+  capacity: number;
+};
+
+type Session = {
+  slot: string;
+  required: boolean;
+  options: SessionOption[];
+};
+
 type DayConfig = {
   day: string;
   label: string;
-  events: string[];
-  timeSlots: string[];
-  eventInfo: Record<string, { location: string; capacity: number }>;
+  sessions: Session[];
 };
 
 type Match = {
@@ -35,7 +45,7 @@ export default function CheckInPage() {
   const [rosterError, setRosterError] = useState(false);
   const [selected, setSelected] = useState<Match | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>({});
-  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -86,49 +96,65 @@ export default function CheckInPage() {
       .slice(0, 8);
   }, [roster, query]);
 
+  // Every option, across every session, keyed by name — a name is unique
+  // within a day even though Saturday repeats the same options in each
+  // session (same capacity each time) and Sunday's options never repeat.
+  const optionInfo = useMemo(() => {
+    const map = new Map<string, SessionOption>();
+    if (!dayConfig) return map;
+    for (const session of dayConfig.sessions) {
+      for (const option of session.options) {
+        map.set(option.name, option);
+      }
+    }
+    return map;
+  }, [dayConfig]);
+
   const takenCounts = useMemo(() => {
     const map = new Map<string, number>();
     if (!roster || !dayConfig) return map;
     for (const a of roster) {
       if (!a.checkedIn) continue;
-      for (const slot of dayConfig.timeSlots) {
-        const event = a.slots[slot];
-        if (event) map.set(`${slot}|${event}`, (map.get(`${slot}|${event}`) ?? 0) + 1);
+      for (const session of dayConfig.sessions) {
+        const event = a.slots[session.slot];
+        if (event) map.set(`${session.slot}|${event}`, (map.get(`${session.slot}|${event}`) ?? 0) + 1);
       }
     }
     return map;
   }, [roster, dayConfig]);
 
-  function isFull(slot: string, event: string) {
-    if (!dayConfig) return false;
-    const taken = takenCounts.get(`${slot}|${event}`) ?? 0;
-    return taken >= dayConfig.eventInfo[event].capacity;
+  function isFull(slot: string, optionName: string) {
+    const taken = takenCounts.get(`${slot}|${optionName}`) ?? 0;
+    const capacity = optionInfo.get(optionName)?.capacity ?? Infinity;
+    return taken >= capacity;
   }
 
-  function slotForEvent(event: string): string | undefined {
-    return dayConfig?.timeSlots.find((slot) => selections[slot] === event);
-  }
-
-  function shortSlotLabel(slot: string): string {
-    return slot.split(" – ")[0] + " PM";
-  }
-
-  function pickSlot(event: string, slot: string) {
-    if (!dayConfig) return;
+  function pickOption(slot: string, optionName: string) {
     setSelections((prev) => {
       const next = { ...prev };
-      for (const s of dayConfig.timeSlots) {
-        if (next[s] === event) delete next[s];
+      // An option can only live in one session's slot at a time — clear it
+      // from wherever it currently is (matters for Saturday, where the same
+      // 4 options are offered in every session).
+      for (const s of Object.keys(next)) {
+        if (next[s] === optionName) delete next[s];
       }
-      if (prev[slot] !== event) {
-        next[slot] = event;
+      if (prev[slot] !== optionName) {
+        next[slot] = optionName;
       }
       return next;
     });
   }
 
-  function toggleExpand(event: string) {
-    setExpandedEvent((prev) => (prev === event ? null : event));
+  function skipSession(slot: string) {
+    setSelections((prev) => {
+      const next = { ...prev };
+      delete next[slot];
+      return next;
+    });
+  }
+
+  function toggleExpand(slot: string) {
+    setExpandedSession((prev) => (prev === slot ? null : slot));
   }
 
   async function handleConfirm() {
@@ -168,14 +194,16 @@ export default function CheckInPage() {
     setQuery("");
     setSelected(null);
     setSelections({});
-    setExpandedEvent(null);
+    setExpandedSession(null);
     setResult(null);
     setError("");
     setSubmitting(false);
     setStatusLoading(false);
   }
 
-  const allSlotsFilled = dayConfig?.timeSlots.every((slot) => selections[slot]) ?? false;
+  const requiredSessions = dayConfig?.sessions.filter((s) => s.required) ?? [];
+  const optionalSessions = dayConfig?.sessions.filter((s) => !s.required) ?? [];
+  const requiredFilled = requiredSessions.every((s) => selections[s.slot]);
   const ready = roster !== null && dayConfig !== null;
 
   return (
@@ -329,13 +357,17 @@ export default function CheckInPage() {
                   {selected.firstName} {selected.lastName} is already checked in
                 </p>
                 <div className="text-left space-y-1.5">
-                  {dayConfig.timeSlots.map((slot) => {
-                    const event = selected.slots[slot];
-                    const location = event ? dayConfig.eventInfo[event]?.location : undefined;
+                  {dayConfig.sessions.map((session) => {
+                    const event = selected.slots[session.slot];
+                    const location = event ? optionInfo.get(event)?.location : undefined;
                     return (
-                      <p key={slot} className="text-sm text-foreground-muted">
-                        <span className="font-medium text-foreground">{slot}:</span>{" "}
-                        {event ? `${event}${location ? ` — ${location}` : ""}` : "—"}
+                      <p key={session.slot} className="text-sm text-foreground-muted">
+                        <span className="font-medium text-foreground">{session.slot}:</span>{" "}
+                        {event
+                          ? `${event}${location ? ` — ${location}` : ""}`
+                          : session.required
+                            ? "—"
+                            : "Skipped"}
                       </p>
                     );
                   })}
@@ -362,33 +394,35 @@ export default function CheckInPage() {
 
                 <div>
                   <p className="text-sm font-medium text-foreground mb-3">
-                    Pick {dayConfig.timeSlots.length} of the {dayConfig.events.length} sessions, each in
-                    a different time slot
+                    {optionalSessions.length === 0
+                      ? `Pick one seminar for each of the ${dayConfig.sessions.length} sessions`
+                      : `Pick one seminar for each required session — ${optionalSessions
+                          .map((s) => s.slot)
+                          .join(", ")} is optional and can be skipped`}
                   </p>
                   <div className="space-y-3">
-                    {dayConfig.events.map((event) => {
-                      const info = dayConfig.eventInfo[event];
-                      const selectedSlot = slotForEvent(event);
-                      const eventChosen = selectedSlot !== undefined;
-                      const expanded = expandedEvent === event || eventChosen;
+                    {dayConfig.sessions.map((session) => {
+                      const picked = selections[session.slot];
+                      const sessionDone = Boolean(picked);
+                      const expanded = expandedSession === session.slot || sessionDone;
                       return (
                         <div
-                          key={event}
+                          key={session.slot}
                           className={`rounded-lg border transition-colors ${
-                            eventChosen ? "border-olive bg-cream-dark" : "border-border"
+                            sessionDone ? "border-olive bg-cream-dark" : "border-border"
                           }`}
                         >
                           <button
                             type="button"
-                            onClick={() => toggleExpand(event)}
+                            onClick={() => toggleExpand(session.slot)}
                             className="w-full flex items-center gap-3 p-3 text-left"
                           >
                             <span
                               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                                eventChosen ? "bg-olive border-olive" : "border-border"
+                                sessionDone ? "bg-olive border-olive" : "border-border"
                               }`}
                             >
-                              {eventChosen && (
+                              {sessionDone && (
                                 <svg
                                   viewBox="0 0 24 24"
                                   className="h-3.5 w-3.5 text-cream"
@@ -401,30 +435,44 @@ export default function CheckInPage() {
                               )}
                             </span>
                             <span className="flex-1">
-                              <span className="block font-medium text-foreground">{event}</span>
+                              <span className="block font-medium text-foreground">
+                                {session.slot}
+                                {!session.required && (
+                                  <span className="ml-1.5 text-xs font-normal text-foreground-muted">
+                                    (optional)
+                                  </span>
+                                )}
+                              </span>
                               <span className="block text-xs text-foreground-muted">
-                                {info.location}
-                                {eventChosen && selectedSlot ? ` · ${shortSlotLabel(selectedSlot)}` : ""}
+                                {picked
+                                  ? `${picked}${
+                                      optionInfo.get(picked)?.location
+                                        ? ` — ${optionInfo.get(picked)?.location}`
+                                        : ""
+                                    }`
+                                  : session.required
+                                    ? "Required"
+                                    : "Optional — tap to select or skip"}
                               </span>
                             </span>
                           </button>
 
                           {expanded && (
-                            <div className="grid grid-cols-3 gap-2 px-3 pb-3">
-                              {dayConfig.timeSlots.map((slot) => {
-                                const checked = selections[slot] === event;
-                                const takenByOtherEvent =
-                                  selections[slot] !== undefined && selections[slot] !== event;
-                                const full = isFull(slot, event);
-                                const disabled = !checked && (takenByOtherEvent || full);
+                            <div className="space-y-2 px-3 pb-3">
+                              {session.options.map((option) => {
+                                const checked = picked === option.name;
+                                const takenElsewhere =
+                                  Object.values(selections).includes(option.name) && !checked;
+                                const full = isFull(session.slot, option.name);
+                                const disabled = !checked && (takenElsewhere || full);
                                 return (
                                   <button
-                                    key={slot}
+                                    key={option.name}
                                     type="button"
-                                    onClick={() => pickSlot(event, slot)}
+                                    onClick={() => pickOption(session.slot, option.name)}
                                     disabled={disabled}
                                     aria-pressed={checked}
-                                    className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                                    className={`w-full flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
                                       checked
                                         ? "border-olive bg-olive text-primary-foreground"
                                         : disabled
@@ -432,10 +480,22 @@ export default function CheckInPage() {
                                           : "border-border text-foreground hover:border-olive"
                                     }`}
                                   >
-                                    {full && !checked ? "Full" : shortSlotLabel(slot)}
+                                    <span className="font-medium">{option.name}</span>
+                                    <span className="text-xs shrink-0">
+                                      {full && !checked ? "Full" : option.location}
+                                    </span>
                                   </button>
                                 );
                               })}
+                              {!session.required && (
+                                <button
+                                  type="button"
+                                  onClick={() => skipSession(session.slot)}
+                                  className="text-xs text-foreground-muted underline hover:text-foreground"
+                                >
+                                  Skip this session
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -448,7 +508,7 @@ export default function CheckInPage() {
 
                 <button
                   onClick={handleConfirm}
-                  disabled={submitting || !allSlotsFilled}
+                  disabled={submitting || !requiredFilled}
                   className="w-full rounded-lg bg-primary text-primary-foreground py-3 font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? "Checking in..." : "Confirm check-in"}
@@ -483,13 +543,17 @@ export default function CheckInPage() {
                   </p>
                 </div>
                 <div className="text-left space-y-1.5">
-                  {dayConfig.timeSlots.map((slot) => {
-                    const event = result.selections[slot];
-                    const location = event ? dayConfig.eventInfo[event]?.location : undefined;
+                  {dayConfig.sessions.map((session) => {
+                    const event = result.selections[session.slot];
+                    const location = event ? optionInfo.get(event)?.location : undefined;
                     return (
-                      <p key={slot} className="text-sm text-foreground-muted">
-                        <span className="font-medium text-foreground">{slot}:</span>{" "}
-                        {event ? `${event}${location ? ` — ${location}` : ""}` : "—"}
+                      <p key={session.slot} className="text-sm text-foreground-muted">
+                        <span className="font-medium text-foreground">{session.slot}:</span>{" "}
+                        {event
+                          ? `${event}${location ? ` — ${location}` : ""}`
+                          : session.required
+                            ? "—"
+                            : "Skipped"}
                       </p>
                     );
                   })}

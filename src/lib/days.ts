@@ -1,57 +1,107 @@
 export type DayId = "saturday" | "sunday";
 
+export type SessionOption = {
+  name: string;
+  location: string;
+  capacity: number;
+};
+
+export type Session = {
+  slot: string;
+  required: boolean;
+  options: SessionOption[];
+};
+
 export type DayConfig = {
   id: DayId;
   label: string;
   sheetName: string;
-  events: readonly string[];
-  timeSlots: readonly string[];
-  eventInfo: Record<string, { location: string; capacity: number }>;
+  sessions: Session[];
 };
 
 export const USERS_SHEET_NAME = "userdata";
 export const CONFIG_SHEET_NAME = "config";
 
-const TIME_SLOTS = ["2:00 – 2:40 PM", "2:45 – 3:25 PM", "3:30 – 4:10 PM"] as const;
+// All distinct seminar names across a day's sessions, in first-seen order.
+// Used for the sheet's YES/NO columns and for "attendees per seminar"
+// metrics — a seminar that only ever appears in one session still gets one
+// entry here.
+export function allSeminars(day: DayConfig): string[] {
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const session of day.sessions) {
+    for (const option of session.options) {
+      if (!seen.has(option.name)) {
+        seen.add(option.name);
+        list.push(option.name);
+      }
+    }
+  }
+  return list;
+}
+
+export function findOption(day: DayConfig, name: string): SessionOption | undefined {
+  for (const session of day.sessions) {
+    const found = session.options.find((o) => o.name === name);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+const SATURDAY_OPTIONS: SessionOption[] = [
+  { name: "Graphic Design for Local Churches (Canva)", location: "Conference Room", capacity: 20 },
+  { name: "Mobile Photography for Church Use", location: "Lobby", capacity: 25 },
+  { name: "Social Media Training", location: "Studio", capacity: 18 },
+  { name: "Using AI for Church Content", location: "Main Auditorium", capacity: 50 },
+];
 
 export const DAYS: Record<DayId, DayConfig> = {
   saturday: {
     id: "saturday",
     label: "Saturday",
     sheetName: "saturday",
-    events: [
-      "Graphic Design for Local Churches (Canva)",
-      "Mobile Photography for Church Use",
-      "Social Media Training",
-      "Using AI for Church Content",
+    // Same 4 options offered in every session (any event, any slot) — this
+    // reproduces the original Saturday behavior under the shared model.
+    sessions: [
+      { slot: "2:00 – 2:40 PM", required: true, options: SATURDAY_OPTIONS },
+      { slot: "2:45 – 3:25 PM", required: true, options: SATURDAY_OPTIONS },
+      { slot: "3:30 – 4:10 PM", required: true, options: SATURDAY_OPTIONS },
     ],
-    timeSlots: TIME_SLOTS,
-    eventInfo: {
-      "Graphic Design for Local Churches (Canva)": { location: "Conference Room", capacity: 20 },
-      "Mobile Photography for Church Use": { location: "Lobby", capacity: 25 },
-      "Social Media Training": { location: "Studio", capacity: 18 },
-      "Using AI for Church Content": { location: "Main Auditorium", capacity: 50 },
-    },
   },
   sunday: {
     id: "sunday",
     label: "Sunday",
     sheetName: "sunday",
-    events: [
-      "Does Your Church Need Livestream?",
-      "Sound System for Churches",
-      "Website Training",
-      "Church Online Reputation",
-      "Video Editing with CapCut",
+    // Each session has its own distinct seminar list. Sessions 1 and 2 are
+    // mandatory; session 3 (the masterclasses) is optional and can be
+    // skipped entirely. Room capacities reused from Saturday's known values
+    // for the same physical rooms (Studio/Main Auditorium/Conference Room).
+    sessions: [
+      {
+        slot: "10:00 – 11:00 AM",
+        required: true,
+        options: [
+          { name: "Does Your Church Need Livestream?", location: "Studio", capacity: 18 },
+          { name: "Sound System for Churches", location: "Main Auditorium", capacity: 50 },
+          { name: "Website Training", location: "Conference Room", capacity: 20 },
+        ],
+      },
+      {
+        slot: "11:00 AM – 12:00 PM",
+        required: true,
+        options: [
+          { name: "Proclaim", location: "Studio", capacity: 18 },
+          { name: "Video Editing with CapCut", location: "Conference Room", capacity: 20 },
+        ],
+      },
+      {
+        slot: "1:00 – 2:00 PM",
+        required: false,
+        options: [
+          { name: "Masterclass: Graphic Design in Canva", location: "Conference Room", capacity: 20 },
+          { name: "Masterclass: How to Improve Your Church Website", location: "Studio", capacity: 18 },
+        ],
+      },
     ],
-    timeSlots: TIME_SLOTS,
-    // PLACEHOLDER locations/capacities — replace with real values before Sunday.
-    eventInfo: {
-      "Does Your Church Need Livestream?": { location: "TBD", capacity: 20 },
-      "Sound System for Churches": { location: "TBD", capacity: 20 },
-      "Website Training": { location: "TBD", capacity: 20 },
-      "Church Online Reputation": { location: "TBD", capacity: 20 },
-      "Video Editing with CapCut": { location: "TBD", capacity: 20 },
-    },
   },
 };

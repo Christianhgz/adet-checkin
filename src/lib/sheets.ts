@@ -1,5 +1,5 @@
 import { google, sheets_v4 } from "googleapis";
-import { CONFIG_SHEET_NAME, DAYS, DayConfig, DayId, USERS_SHEET_NAME } from "./days";
+import { allSeminars, CONFIG_SHEET_NAME, DAYS, DayConfig, DayId, USERS_SHEET_NAME } from "./days";
 
 // Cache TTLs are deliberately uneven: data that essentially never changes
 // (the user list) is cached far longer than data that changes constantly
@@ -87,15 +87,16 @@ function colLetter(index: number): string {
 }
 
 // Column layout of a day tab, relative to column A (user-id):
-// A: user-id | B..: one column per event | then total-events, checked-in,
-// checked-in-at | then one column per time slot.
+// A: user-id | B..: one column per distinct seminar (across all sessions) |
+// then total-events, checked-in, checked-in-at | then one column per session.
 function dayColumns(day: DayConfig) {
+  const seminarCount = allSeminars(day).length;
   const eventsStart = 1;
-  const totalEventsCol = eventsStart + day.events.length;
+  const totalEventsCol = eventsStart + seminarCount;
   const checkedInCol = totalEventsCol + 1;
   const checkedInAtCol = checkedInCol + 1;
   const slotsStart = checkedInAtCol + 1;
-  const lastCol = slotsStart + day.timeSlots.length - 1;
+  const lastCol = slotsStart + day.sessions.length - 1;
   return { eventsStart, totalEventsCol, checkedInCol, checkedInAtCol, slotsStart, lastCol };
 }
 
@@ -176,18 +177,21 @@ type ParsedDayRow = Omit<Attendee, "firstName" | "lastName" | "email">;
 
 function parseDayRow(row: string[], day: DayConfig): ParsedDayRow {
   const cols = dayColumns(day);
+  const seminars = allSeminars(day);
   const userId = (row[0] ?? "").trim();
-  const eventCells = row.slice(cols.eventsStart, cols.eventsStart + day.events.length);
+  const eventCells = row.slice(cols.eventsStart, cols.eventsStart + seminars.length);
   const totalEvents = (row[cols.totalEventsCol] ?? "").trim();
   const checkedIn = (row[cols.checkedInCol] ?? "").trim().toUpperCase() === "TRUE";
   const checkedInAt = (row[cols.checkedInAtCol] ?? "").trim() || null;
-  const slotCells = row.slice(cols.slotsStart, cols.slotsStart + day.timeSlots.length);
+  const slotCells = row.slice(cols.slotsStart, cols.slotsStart + day.sessions.length);
 
-  const events = day.events.filter((_, i) => (eventCells[i] ?? "").trim().toUpperCase() === "YES");
+  const events = seminars.filter((_, i) => (eventCells[i] ?? "").trim().toUpperCase() === "YES");
   const slots: Record<string, string> = {};
-  day.timeSlots.forEach((slot, i) => {
+  day.sessions.forEach((session, i) => {
     const value = (slotCells[i] ?? "").trim();
-    if (day.events.includes(value)) slots[slot] = value;
+    if (session.options.some((o) => o.name === value)) {
+      slots[session.slot] = value;
+    }
   });
 
   return { userId, events, totalEvents, checkedIn, checkedInAt, slots };
@@ -260,17 +264,16 @@ export function computeAvailability(
 ): SlotAvailability[] {
   const dayConfig = DAYS[day];
   const availability: SlotAvailability[] = [];
-  for (const slot of dayConfig.timeSlots) {
-    for (const event of dayConfig.events) {
-      const info = dayConfig.eventInfo[event];
-      const taken = roster.filter((a) => a.checkedIn && a.slots[slot] === event).length;
+  for (const session of dayConfig.sessions) {
+    for (const option of session.options) {
+      const taken = roster.filter((a) => a.checkedIn && a.slots[session.slot] === option.name).length;
       availability.push({
-        slot,
-        event,
-        location: info.location,
-        capacity: info.capacity,
+        slot: session.slot,
+        event: option.name,
+        location: option.location,
+        capacity: option.capacity,
         taken,
-        full: taken >= info.capacity,
+        full: taken >= option.capacity,
       });
     }
   }
@@ -291,6 +294,7 @@ export async function checkInAttendee(
 ): Promise<CheckInOutcome> {
   const dayConfig = DAYS[day];
   const cols = dayColumns(dayConfig);
+  const seminars = allSeminars(dayConfig);
   const sheets = getClient();
 
   // Single fresh (uncached) read of the whole day tab: gives us this user's
@@ -317,24 +321,33 @@ export async function checkInAttendee(
     return { status: "already", checkedInAt: parsed.checkedInAt ?? "", selections: parsed.slots };
   }
 
-  const chosenSlots = dayConfig.timeSlots.filter((slot) => selections[slot]);
-  if (chosenSlots.length !== dayConfig.timeSlots.length) {
-    return { status: "invalid_selection", message: "Pick one session for every time slot." };
-  }
-  const chosenEvents = dayConfig.timeSlots.map((slot) => selections[slot]);
-  const uniqueEvents = new Set(chosenEvents);
-  if (uniqueEvents.size !== dayConfig.timeSlots.length) {
-    return { status: "invalid_selection", message: "Each time slot must have a different session." };
-  }
-  for (const event of chosenEvents) {
-    if (!dayConfig.events.includes(event)) {
+  // Validate each session: required sessions must have a pick, optional
+  // sessions may be skipped, and any pick must belong to that session's own
+  // option list.
+  for (const session of dayConfig.sessions) {
+    const picked = selections[session.slot];
+    if (!picked) {
+      if (session.required) {
+        return { status: "invalid_selection", message: `Pick a session for ${session.slot}.` };
+      }
+      continue;
+    }
+    if (!session.options.some((o) => o.name === picked)) {
       return { status: "invalid_selection", message: "Invalid session selected." };
     }
   }
 
+  const chosenPairs = dayConfig.sessions
+    .map((session) => ({ slot: session.slot, event: selections[session.slot] }))
+    .filter((p): p is { slot: string; event: string } => Boolean(p.event));
+
+  const uniqueEvents = new Set(chosenPairs.map((p) => p.event));
+  if (uniqueEvents.size !== chosenPairs.length) {
+    return { status: "invalid_selection", message: "Each session must have a different seminar." };
+  }
+
   const availability = computeAvailability(allParsed, day);
-  for (const slot of dayConfig.timeSlots) {
-    const event = selections[slot];
+  for (const { slot, event } of chosenPairs) {
     const slotAvailability = availability.find((a) => a.slot === slot && a.event === event);
     if (slotAvailability?.full) {
       return { status: "slot_full", slot, event };
@@ -342,20 +355,24 @@ export async function checkInAttendee(
   }
 
   const now = new Date().toISOString();
-  const eventColumns = dayConfig.events.map((name) => (uniqueEvents.has(name) ? "YES" : "NO"));
-  const slotColumns = dayConfig.timeSlots.map((slot) => selections[slot]);
+  const eventColumns = seminars.map((name) => (uniqueEvents.has(name) ? "YES" : "NO"));
+  const slotColumns = dayConfig.sessions.map((session) => selections[session.slot] ?? "");
   await withRetry(() =>
     sheets.spreadsheets.values.update({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
       range: `${dayConfig.sheetName}!${colLetter(1)}${rowNumber}:${colLetter(cols.lastCol)}${rowNumber}`,
       valueInputOption: "RAW",
       requestBody: {
-        values: [[...eventColumns, String(chosenEvents.length), "TRUE", now, ...slotColumns]],
+        values: [[...eventColumns, String(chosenPairs.length), "TRUE", now, ...slotColumns]],
       },
     }),
   );
   rosterCache = null;
-  return { status: "checked_in", checkedInAt: now, selections };
+  return {
+    status: "checked_in",
+    checkedInAt: now,
+    selections: Object.fromEntries(chosenPairs.map((p) => [p.slot, p.event])),
+  };
 }
 
 export function computeMetrics(roster: Attendee[], day: DayId): Metrics {
@@ -363,7 +380,7 @@ export function computeMetrics(roster: Attendee[], day: DayId): Metrics {
   const totalRegistered = roster.length;
   const totalCheckedIn = roster.filter((a) => a.checkedIn).length;
 
-  const perEvent = dayConfig.events.map((event) => ({
+  const perEvent = allSeminars(dayConfig).map((event) => ({
     event,
     attendees: roster.filter((a) => a.events.includes(event)).length,
   }));
